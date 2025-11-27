@@ -11,6 +11,7 @@ export const useDownloadStore = defineStore('download', () => {
   // 当前会话数据
   const currentCode = ref('')
   const currentFileList = ref<FileItem[]>([])
+  const basePath = ref('/') // 分享链接的基础路径（虚拟根目录）
   const sessionData = ref<{
     uk: string
     shareid: string
@@ -42,7 +43,11 @@ export const useDownloadStore = defineStore('download', () => {
     sessionData.value = data
   }
 
-  function addToWaiting(files: FileItem[]) {
+  function setBasePath(path: string) {
+    basePath.value = path
+  }
+
+  function addToWaiting(files: FileItem[], downloadBasePath: string | null = null) {
     const newTasks: DownloadTask[] = files.map(file => ({
       id: `${Date.now()}-${file.fs_id}`,
       file,
@@ -52,7 +57,8 @@ export const useDownloadStore = defineStore('download', () => {
       downloadedSize: 0,
       totalSize: file.size,
       createdAt: Date.now(),
-      retryCount: 0
+      retryCount: 0,
+      downloadBasePath // 下载基础路径，null 表示直接放在下载目录
     }))
     waitingTasks.value.push(...newTasks)
   }
@@ -160,6 +166,7 @@ export const useDownloadStore = defineStore('download', () => {
     completedTasks,
     currentCode,
     currentFileList,
+    basePath,
     sessionData,
 
     // 计算属性
@@ -171,6 +178,7 @@ export const useDownloadStore = defineStore('download', () => {
     // 方法
     setCurrentCode,
     setCurrentFileList,
+    setBasePath,
     setSessionData,
     addToWaiting,
     removeFromWaiting,

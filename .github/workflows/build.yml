@@ -1,12 +1,19 @@
 name: Build and Release
 
 on:
+  push:
+    branches:
+      - main
+      - master
+    paths:
+      - 'app/**'
+      - '.github/workflows/build.yml'
   workflow_dispatch:
     inputs:
       version:
         description: '版本号 (例如: 1.0.0)'
-        required: true
-        default: '1.0.0'
+        required: false
+        default: ''
       release:
         description: '是否创建Release'
         required: true
@@ -50,12 +57,19 @@ jobs:
         working-directory: ./app
         run: pnpm install
 
-      - name: Update version
+      - name: Get version from package.json
+        id: get_version
         working-directory: ./app
         run: |
-          $content = Get-Content package.json -Raw | ConvertFrom-Json
-          $content.version = "${{ github.event.inputs.version }}"
-          $content | ConvertTo-Json -Depth 100 | Set-Content package.json
+          $pkg = Get-Content package.json -Raw | ConvertFrom-Json
+          $version = $pkg.version
+          # 如果手动触发并提供了版本号，则使用手动输入的版本
+          if ("${{ github.event.inputs.version }}" -ne "") {
+            $version = "${{ github.event.inputs.version }}"
+            $pkg.version = $version
+            $pkg | ConvertTo-Json -Depth 100 | Set-Content package.json
+          }
+          echo "VERSION=$version" >> $env:GITHUB_OUTPUT
         shell: pwsh
 
       - name: Build
@@ -67,19 +81,22 @@ jobs:
       - name: Create portable zip
         run: |
           cd app/release
-          Compress-Archive -Path "win-unpacked/*" -DestinationPath "图片下载器-v${{ github.event.inputs.version }}-portable.zip"
+          Compress-Archive -Path "win-unpacked/*" -DestinationPath "图片下载器-v${{ steps.get_version.outputs.VERSION }}-portable.zip"
         shell: pwsh
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: windows-build
+          name: windows-build-${{ steps.get_version.outputs.VERSION }}
           path: app/release/*.zip
+
+    outputs:
+      version: ${{ steps.get_version.outputs.VERSION }}
 
   release:
     needs: [build-windows]
     runs-on: ubuntu-latest
-    if: ${{ github.event.inputs.release == 'true' }}
+    if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.release == 'true' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -87,22 +104,23 @@ jobs:
       - name: Download Windows artifacts
         uses: actions/download-artifact@v4
         with:
-          name: windows-build
+          name: windows-build-${{ needs.build-windows.outputs.version }}
           path: ./release
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: v${{ github.event.inputs.version }}
-          name: 图片下载器 v${{ github.event.inputs.version }}
+          tag_name: v${{ needs.build-windows.outputs.version }}
+          name: 图片下载器 v${{ needs.build-windows.outputs.version }}
           body: |
-            ## 图片下载器 v${{ github.event.inputs.version }}
+            ## 图片下载器 v${{ needs.build-windows.outputs.version }}
 
             ### 下载
             - Windows: 下载 `.zip` 便携版，解压后直接运行 `图片下载器.exe`
 
             ### 更新内容
-            - 首次发布
+            - 修复路径显示问题
+            - 优化下载路径创建逻辑
           draft: false
           prerelease: false
           files: |

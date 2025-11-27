@@ -281,7 +281,10 @@ export class MultiThreadDownloader extends EventEmitter {
 
       chunk.status = 'downloading'
       const tempPath = this.tempFiles[chunk.index]
-      const fileStream = fs.createWriteStream(tempPath)
+      // 如果已下载部分数据，则追加写入；否则从头写入
+      const fileStream = chunk.downloaded > 0
+        ? fs.createWriteStream(tempPath, { flags: 'a' })
+        : fs.createWriteStream(tempPath)
       const urlObj = new URL(this.url)
       const client = urlObj.protocol === 'https:' ? https : http
 
@@ -449,8 +452,15 @@ export class MultiThreadDownloader extends EventEmitter {
   pause() {
     this.isPaused = true
     this.stopProgressTimer()
+    // 停止所有活动请求
     this.activeRequests.forEach(req => req.destroy())
     this.activeRequests.clear()
+    // 将正在下载的分片标记为 pending
+    this.chunks.forEach(chunk => {
+      if (chunk.status === 'downloading') {
+        chunk.status = 'pending'
+      }
+    })
     this.emitProgress('paused')
   }
 
@@ -463,14 +473,24 @@ export class MultiThreadDownloader extends EventEmitter {
     const pendingChunks = this.chunks.filter(c => c.status !== 'completed')
     if (pendingChunks.length > 0) {
       this.startProgressTimer()
-      const promises = pendingChunks.map(chunk => this.downloadChunk(chunk))
-      await Promise.all(promises)
+      try {
+        const promises = pendingChunks.map(chunk => this.downloadChunk(chunk))
+        await Promise.all(promises)
 
-      if (!this.isAborted) {
-        await this.mergeChunks()
+        if (!this.isAborted && !this.isPaused) {
+          await this.mergeChunks()
+          this.stopProgressTimer()
+          this.emitProgress('completed')
+        }
+      } catch (error: any) {
         this.stopProgressTimer()
-        this.emitProgress('completed')
+        this.emitProgress('error', error.message)
       }
+    } else if (this.chunks.length === 0) {
+      // 单线程下载模式，需要重新开始
+      // 因为单线程下载没有分片信息，暂停后无法断点续传
+      // 发送错误提示
+      this.emitProgress('error', '单线程下载不支持断点续传，请重新下载')
     }
   }
 

@@ -124,9 +124,12 @@ ipcMain.handle('download:pause', (_, taskId: string) => {
   return { success: true }
 })
 
-ipcMain.handle('download:resume', async (_, taskId: string) => {
+ipcMain.handle('download:resume', (_, taskId: string) => {
   try {
-    await downloadManager.resumeTask(taskId)
+    // 在后台恢复下载，不阻塞 IPC 返回
+    downloadManager.resumeTask(taskId).catch((error: Error) => {
+      console.error('恢复下载失败:', error)
+    })
     return { success: true }
   } catch (error: any) {
     return { success: false, error: error.message }

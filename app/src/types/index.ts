@@ -30,6 +30,7 @@ export interface DownloadTask {
   downloadUrl?: string
   ua?: string
   localPath?: string
+  downloadBasePath?: string | null // 下载基础路径，null 表示直接放在下载目录，不创建子目录
 }
 
 // API响应

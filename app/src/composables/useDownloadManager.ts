@@ -90,10 +90,25 @@ export function useDownloadManager() {
       nextTask.ua = linkData.ua
 
       // 计算本地路径
-      const localDir = path.join(
-        settingsStore.downloadPath,
-        path.dirname(nextTask.file.path).replace(/^\//, '')
-      )
+      let localDir: string
+      if (nextTask.downloadBasePath === null || nextTask.downloadBasePath === undefined) {
+        // 单个文件下载，直接放在下载目录根目录
+        localDir = settingsStore.downloadPath
+      } else {
+        // 文件夹下载，计算相对于下载基础路径的子目录
+        const fileDirPath = path.dirname(nextTask.file.path)
+        // 获取相对于 downloadBasePath 的路径
+        let relativePath = ''
+        if (fileDirPath.startsWith(nextTask.downloadBasePath)) {
+          relativePath = fileDirPath.slice(nextTask.downloadBasePath.length)
+          if (relativePath.startsWith('/')) {
+            relativePath = relativePath.slice(1)
+          }
+        }
+        localDir = relativePath
+          ? path.join(settingsStore.downloadPath, relativePath)
+          : settingsStore.downloadPath
+      }
       const localPath = path.join(localDir, nextTask.file.server_filename)
       nextTask.localPath = localPath
 

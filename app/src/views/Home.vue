@@ -115,9 +115,9 @@
           v-model="code"
           type="text"
           placeholder="输入下载编码"
-          @keyup.enter="fetchFileList"
+          @keyup.enter="handleFetch"
         />
-        <button class="btn-fetch" @click="fetchFileList" :disabled="loading || !code.trim()">
+        <button class="btn-fetch" @click="handleFetch" :disabled="loading || !code.trim()">
           获取
         </button>
         <button
@@ -152,19 +152,31 @@ const downloadStore = useDownloadStore()
 const code = ref('')
 const fileList = ref<FileItem[]>([])
 const currentPath = ref('/')
+const basePath = ref('/') // 首次获取文件列表时的路径，作为虚拟根目录
 const loading = ref(false)
 const errorMessage = ref('')
 const hoverFileId = ref<number | string | null>(null)
 const selectedIds = ref<Set<number | string>>(new Set())
 
+// 获取相对于基础路径的显示路径
+function getRelativePath(fullPath: string): string {
+  if (fullPath === basePath.value) return '/'
+  if (fullPath.startsWith(basePath.value)) {
+    const relativePath = fullPath.slice(basePath.value.length)
+    return relativePath.startsWith('/') ? relativePath : '/' + relativePath
+  }
+  return fullPath
+}
+
 // 面包屑导航
 const breadcrumbs = computed(() => {
-  const parts = currentPath.value.split('/').filter(Boolean)
-  const items = [{ name: '根目录', path: '/' }]
+  const relativePath = getRelativePath(currentPath.value)
+  const parts = relativePath.split('/').filter(Boolean)
+  const items = [{ name: '根目录', path: basePath.value }]
 
-  let path = ''
+  let path = basePath.value
   for (const part of parts) {
-    path += '/' + part
+    path = path === '/' ? '/' + part : path + '/' + part
     items.push({ name: part, path })
   }
 
@@ -178,7 +190,7 @@ const isAllSelected = computed(() => {
 })
 
 // 获取文件列表
-async function fetchFileList() {
+async function fetchFileList(isInitial: boolean = false) {
   if (!code.value.trim()) return
 
   loading.value = true
@@ -188,8 +200,19 @@ async function fetchFileList() {
   try {
     const data = await api.getFileList(code.value.trim(), currentPath.value)
     fileList.value = data.list
+
+    // 首次获取时，根据返回的文件路径自动确定基础路径
+    if (isInitial && data.list.length > 0) {
+      const firstFilePath = data.list[0].path
+      // 获取文件的父目录作为基础路径
+      const parentDir = firstFilePath.substring(0, firstFilePath.lastIndexOf('/')) || '/'
+      basePath.value = parentDir
+      currentPath.value = parentDir
+    }
+
     downloadStore.setCurrentCode(code.value.trim())
     downloadStore.setCurrentFileList(data.list)
+    downloadStore.setBasePath(basePath.value)
     downloadStore.setSessionData({
       uk: data.uk,
       shareid: data.shareid,
@@ -207,10 +230,18 @@ async function fetchFileList() {
   }
 }
 
+// 首次获取文件列表
+async function handleFetch() {
+  // 重置路径为根目录
+  currentPath.value = '/'
+  basePath.value = '/'
+  await fetchFileList(true)
+}
+
 // 导航到目录
 async function navigateTo(path: string) {
   currentPath.value = path
-  await fetchFileList()
+  await fetchFileList(false)
 }
 
 // 切换选择
@@ -231,21 +262,22 @@ function toggleSelectAll() {
   }
 }
 
-// 下载单个文件
+// 下载单个文件（不创建子目录）
 function downloadSingle(file: FileItem) {
-  downloadStore.addToWaiting([file])
+  // 单个文件下载，downloadBasePath 为 null 表示直接放在下载目录
+  downloadStore.addToWaiting([file], null)
   router.push('/transfer/waiting')
 }
 
-// 下载文件夹
+// 下载文件夹（以该文件夹为根目录）
 async function downloadFolder(folder: FileItem) {
-  // 获取文件夹内所有文件
+  // 获取文件夹内所有文件（递归）
   try {
     loading.value = true
-    const data = await api.getFileList(code.value.trim(), folder.path)
-    const files = data.list.filter(f => f.isdir !== 1)
-    if (files.length > 0) {
-      downloadStore.addToWaiting(files)
+    const allFiles = await getAllFilesInFolder(folder.path)
+    if (allFiles.length > 0) {
+      // 以被下载的文件夹为基础路径
+      downloadStore.addToWaiting(allFiles, folder.path)
       router.push('/transfer/waiting')
     } else {
       errorMessage.value = '文件夹内没有可下载的文件'
@@ -263,11 +295,31 @@ async function downloadFolder(folder: FileItem) {
   }
 }
 
+// 递归获取文件夹内所有文件
+async function getAllFilesInFolder(folderPath: string): Promise<FileItem[]> {
+  const data = await api.getFileList(code.value.trim(), folderPath)
+  const files: FileItem[] = []
+
+  for (const item of data.list) {
+    if (item.isdir === 1) {
+      // 递归获取子文件夹内的文件
+      const subFiles = await getAllFilesInFolder(item.path)
+      files.push(...subFiles)
+    } else {
+      files.push(item)
+    }
+  }
+
+  return files
+}
+
 // 下载选中的文件
 function downloadSelected() {
   const selected = fileList.value.filter(f => selectedIds.value.has(f.fs_id) && f.isdir !== 1)
   if (selected.length > 0) {
-    downloadStore.addToWaiting(selected)
+    // 选中的文件，如果只有一个就不创建子目录，多个则以当前路径为基础
+    const downloadBasePath = selected.length === 1 ? null : currentPath.value
+    downloadStore.addToWaiting(selected, downloadBasePath)
     router.push('/transfer/waiting')
   }
 }
