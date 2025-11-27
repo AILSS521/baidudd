@@ -63,6 +63,25 @@
 </template>
 
 <script setup lang="ts">
+import { onMounted, onUnmounted } from 'vue'
+import { useSettingsStore } from '@/stores/settings'
+import { useDownloadManager } from '@/composables/useDownloadManager'
+
+const settingsStore = useSettingsStore()
+const downloadManager = useDownloadManager()
+
+onMounted(() => {
+  // 初始化设置
+  settingsStore.init()
+  // 设置下载进度监听
+  downloadManager.setupProgressListener()
+})
+
+onUnmounted(() => {
+  // 移除下载进度监听
+  downloadManager.removeProgressListener()
+})
+
 const handleMinimize = () => {
   window.electronAPI?.minimize()
 }

@@ -95,7 +95,7 @@ ipcMain.handle('settings:setDownloadPath', (_, newPath: string) => {
 })
 
 // IPC处理 - 下载管理
-ipcMain.handle('download:start', async (_, taskId: string, options: {
+ipcMain.handle('download:start', (_, taskId: string, options: {
   url: string
   savePath: string
   filename: string
@@ -109,7 +109,10 @@ ipcMain.handle('download:start', async (_, taskId: string, options: {
       userAgent: options.userAgent,
       threads: 32
     })
-    await downloadManager.startTask(taskId)
+    // 在后台启动下载，不阻塞 IPC 返回
+    downloadManager.startTask(taskId).catch((error: Error) => {
+      console.error('下载失败:', error)
+    })
     return { success: true }
   } catch (error: any) {
     return { success: false, error: error.message }

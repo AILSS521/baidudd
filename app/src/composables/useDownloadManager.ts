@@ -1,4 +1,4 @@
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref } from 'vue'
 import { useDownloadStore } from '@/stores/download'
 import { useSettingsStore } from '@/stores/settings'
 import { useApi } from './useApi'
@@ -159,16 +159,6 @@ export function useDownloadManager() {
   function resetErrorCount() {
     errorCount.value = 0
   }
-
-  // 组件挂载时设置监听
-  onMounted(() => {
-    setupProgressListener()
-  })
-
-  // 组件卸载时移除监听
-  onUnmounted(() => {
-    removeProgressListener()
-  })
 
   return {
     isProcessing,
