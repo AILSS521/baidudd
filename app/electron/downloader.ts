@@ -299,6 +299,13 @@ export class MultiThreadDownloader extends EventEmitter {
         return
       }
 
+      // 检查分片是否已完成（currentPosition 已超过 end）
+      if (chunk.currentPosition > chunk.end) {
+        chunk.status = 'completed'
+        resolve()
+        return
+      }
+
       chunk.status = 'downloading'
       const urlObj = new URL(this.url)
       const client = urlObj.protocol === 'https:' ? https : http
