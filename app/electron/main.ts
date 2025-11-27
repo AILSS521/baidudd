@@ -1,20 +1,10 @@
 import { app, BrowserWindow, ipcMain, dialog, shell } from 'electron'
-import { spawn, ChildProcess } from 'child_process'
 import path from 'path'
 import fs from 'fs'
 import os from 'os'
+import { downloadManager } from './downloader'
 
 let mainWindow: BrowserWindow | null = null
-let aria2Process: ChildProcess | null = null
-
-// Aria2配置
-const ARIA2_CONFIG = {
-  maxConcurrentDownloads: 3,
-  maxConnectionPerServer: 64,
-  split: 64,
-  checkCertificate: false,
-  fileAllocation: 'prealloc'
-}
 
 // 获取默认下载目录
 function getDefaultDownloadPath(): string {
@@ -23,70 +13,6 @@ function getDefaultDownloadPath(): string {
     fs.mkdirSync(downloadPath, { recursive: true })
   }
   return downloadPath
-}
-
-// 获取aria2可执行文件路径
-function getAria2Path(): string {
-  const isDev = !app.isPackaged
-  if (isDev) {
-    return path.join(__dirname, '..', 'aria2', process.platform === 'win32' ? 'aria2c.exe' : 'aria2c')
-  }
-  return path.join(process.resourcesPath, 'aria2', process.platform === 'win32' ? 'aria2c.exe' : 'aria2c')
-}
-
-// 启动aria2
-function startAria2(): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const aria2Path = getAria2Path()
-
-    if (!fs.existsSync(aria2Path)) {
-      reject(new Error('aria2 not found'))
-      return
-    }
-
-    const args = [
-      '--enable-rpc',
-      '--rpc-listen-all=false',
-      '--rpc-listen-port=6800',
-      '--rpc-allow-origin-all',
-      `--max-concurrent-downloads=${ARIA2_CONFIG.maxConcurrentDownloads}`,
-      `--max-connection-per-server=${ARIA2_CONFIG.maxConnectionPerServer}`,
-      `--split=${ARIA2_CONFIG.split}`,
-      `--check-certificate=${ARIA2_CONFIG.checkCertificate}`,
-      `--file-allocation=${ARIA2_CONFIG.fileAllocation}`,
-      '--continue=true',
-      '--auto-file-renaming=false',
-      '--allow-overwrite=true'
-    ]
-
-    aria2Process = spawn(aria2Path, args, {
-      stdio: ['ignore', 'pipe', 'pipe']
-    })
-
-    aria2Process.on('error', (error) => {
-      console.error('aria2 error:', error)
-      reject(error)
-    })
-
-    aria2Process.stdout?.on('data', (data) => {
-      console.log('aria2:', data.toString())
-    })
-
-    aria2Process.stderr?.on('data', (data) => {
-      console.error('aria2 error:', data.toString())
-    })
-
-    // 等待aria2启动
-    setTimeout(() => resolve(), 1000)
-  })
-}
-
-// 停止aria2
-function stopAria2(): void {
-  if (aria2Process) {
-    aria2Process.kill()
-    aria2Process = null
-  }
 }
 
 // 创建主窗口
@@ -115,9 +41,14 @@ function createWindow(): void {
   mainWindow.on('closed', () => {
     mainWindow = null
   })
+
+  // 设置下载进度回调
+  downloadManager.setProgressCallback((progress) => {
+    mainWindow?.webContents.send('download:progress', progress)
+  })
 }
 
-// IPC处理
+// IPC处理 - 窗口控制
 ipcMain.handle('window:minimize', () => {
   mainWindow?.minimize()
 })
@@ -134,6 +65,7 @@ ipcMain.handle('window:close', () => {
   mainWindow?.close()
 })
 
+// IPC处理 - 对话框
 ipcMain.handle('dialog:selectFolder', async () => {
   const result = await dialog.showOpenDialog(mainWindow!, {
     properties: ['openDirectory']
@@ -141,6 +73,7 @@ ipcMain.handle('dialog:selectFolder', async () => {
   return result.filePaths[0] || null
 })
 
+// IPC处理 - Shell
 ipcMain.handle('shell:openPath', async (_, filePath: string) => {
   await shell.openPath(filePath)
 })
@@ -149,6 +82,7 @@ ipcMain.handle('shell:showItemInFolder', async (_, filePath: string) => {
   shell.showItemInFolder(filePath)
 })
 
+// IPC处理 - 设置
 ipcMain.handle('settings:getDownloadPath', () => {
   return getDefaultDownloadPath()
 })
@@ -160,22 +94,57 @@ ipcMain.handle('settings:setDownloadPath', (_, newPath: string) => {
   return newPath
 })
 
-ipcMain.handle('aria2:getPort', () => {
-  return 6800
+// IPC处理 - 下载管理
+ipcMain.handle('download:start', async (_, taskId: string, options: {
+  url: string
+  savePath: string
+  filename: string
+  userAgent?: string
+}) => {
+  try {
+    downloadManager.addTask(taskId, {
+      url: options.url,
+      savePath: options.savePath,
+      filename: options.filename,
+      userAgent: options.userAgent,
+      threads: 32
+    })
+    await downloadManager.startTask(taskId)
+    return { success: true }
+  } catch (error: any) {
+    return { success: false, error: error.message }
+  }
+})
+
+ipcMain.handle('download:pause', (_, taskId: string) => {
+  downloadManager.pauseTask(taskId)
+  return { success: true }
+})
+
+ipcMain.handle('download:resume', async (_, taskId: string) => {
+  try {
+    await downloadManager.resumeTask(taskId)
+    return { success: true }
+  } catch (error: any) {
+    return { success: false, error: error.message }
+  }
+})
+
+ipcMain.handle('download:cancel', async (_, taskId: string) => {
+  try {
+    await downloadManager.cancelTask(taskId)
+    return { success: true }
+  } catch (error: any) {
+    return { success: false, error: error.message }
+  }
 })
 
 // 应用生命周期
-app.whenReady().then(async () => {
-  try {
-    await startAria2()
-  } catch (error) {
-    console.error('Failed to start aria2:', error)
-  }
+app.whenReady().then(() => {
   createWindow()
 })
 
 app.on('window-all-closed', () => {
-  stopAria2()
   if (process.platform !== 'darwin') {
     app.quit()
   }
@@ -185,8 +154,4 @@ app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) {
     createWindow()
   }
-})
-
-app.on('before-quit', () => {
-  stopAria2()
 })

@@ -1,5 +1,16 @@
 import { contextBridge, ipcRenderer } from 'electron'
 
+// 下载进度类型
+interface DownloadProgress {
+  taskId: string
+  totalSize: number
+  downloadedSize: number
+  speed: number
+  progress: number
+  status: 'downloading' | 'paused' | 'completed' | 'error'
+  error?: string
+}
+
 // 暴露API到渲染进程
 contextBridge.exposeInMainWorld('electronAPI', {
   // 窗口控制
@@ -18,8 +29,27 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getDownloadPath: () => ipcRenderer.invoke('settings:getDownloadPath'),
   setDownloadPath: (path: string) => ipcRenderer.invoke('settings:setDownloadPath', path),
 
-  // aria2
-  getAria2Port: () => ipcRenderer.invoke('aria2:getPort')
+  // 下载管理
+  startDownload: (taskId: string, options: {
+    url: string
+    savePath: string
+    filename: string
+    userAgent?: string
+  }) => ipcRenderer.invoke('download:start', taskId, options),
+
+  pauseDownload: (taskId: string) => ipcRenderer.invoke('download:pause', taskId),
+  resumeDownload: (taskId: string) => ipcRenderer.invoke('download:resume', taskId),
+  cancelDownload: (taskId: string) => ipcRenderer.invoke('download:cancel', taskId),
+
+  // 下载进度监听
+  onDownloadProgress: (callback: (progress: DownloadProgress) => void) => {
+    ipcRenderer.on('download:progress', (_, progress) => callback(progress))
+  },
+
+  // 移除下载进度监听
+  removeDownloadProgressListener: () => {
+    ipcRenderer.removeAllListeners('download:progress')
+  }
 })
 
 // 类型声明
@@ -32,7 +62,17 @@ export interface ElectronAPI {
   showItemInFolder: (path: string) => Promise<void>
   getDownloadPath: () => Promise<string>
   setDownloadPath: (path: string) => Promise<string>
-  getAria2Port: () => Promise<number>
+  startDownload: (taskId: string, options: {
+    url: string
+    savePath: string
+    filename: string
+    userAgent?: string
+  }) => Promise<{ success: boolean; error?: string }>
+  pauseDownload: (taskId: string) => Promise<{ success: boolean }>
+  resumeDownload: (taskId: string) => Promise<{ success: boolean; error?: string }>
+  cancelDownload: (taskId: string) => Promise<{ success: boolean; error?: string }>
+  onDownloadProgress: (callback: (progress: DownloadProgress) => void) => void
+  removeDownloadProgressListener: () => void
 }
 
 declare global {

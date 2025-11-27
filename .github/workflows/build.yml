@@ -46,14 +46,6 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-pnpm-store-
 
-      - name: Download aria2 for Windows
-        run: |
-          mkdir -p app/aria2
-          Invoke-WebRequest -Uri "https://github.com/aria2/aria2/releases/download/release-1.37.0/aria2-1.37.0-win-64bit-build1.zip" -OutFile "aria2.zip"
-          Expand-Archive -Path "aria2.zip" -DestinationPath "aria2-temp"
-          Move-Item -Path "aria2-temp/aria2-1.37.0-win-64bit-build1/aria2c.exe" -Destination "app/aria2/aria2c.exe"
-        shell: pwsh
-
       - name: Install dependencies
         working-directory: ./app
         run: pnpm install

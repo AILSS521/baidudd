@@ -1,7 +1,7 @@
 {
   "name": "image-downloader",
   "version": "1.0.0",
-  "description": "图片下载器 - 基于aria2的百度网盘文件下载器",
+  "description": "图片下载器 - 百度网盘文件下载器",
   "author": "AILSS521",
   "repository": {
     "type": "git",
@@ -46,14 +46,7 @@
     },
     "files": [
       "dist/**/*",
-      "dist-electron/**/*",
-      "aria2/**/*"
-    ],
-    "extraResources": [
-      {
-        "from": "aria2",
-        "to": "aria2"
-      }
+      "dist-electron/**/*"
     ],
     "win": {
       "target": [

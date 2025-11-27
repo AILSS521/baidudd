@@ -1,8 +1,7 @@
-import { ref } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { useDownloadStore } from '@/stores/download'
 import { useSettingsStore } from '@/stores/settings'
 import { useApi } from './useApi'
-import { useAria2 } from './useAria2'
 import type { DownloadTask } from '@/types'
 import path from 'path-browserify'
 
@@ -10,14 +9,54 @@ const MAX_CONCURRENT_DOWNLOADS = 3
 const MAX_RETRY = 3
 const RETRY_DELAY = 5000
 
+interface DownloadProgress {
+  taskId: string
+  totalSize: number
+  downloadedSize: number
+  speed: number
+  progress: number
+  status: 'downloading' | 'paused' | 'completed' | 'error'
+  error?: string
+}
+
 export function useDownloadManager() {
   const downloadStore = useDownloadStore()
   const settingsStore = useSettingsStore()
   const api = useApi()
-  const aria2 = useAria2()
 
   const isProcessing = ref(false)
   const errorCount = ref(0)
+
+  // 设置进度监听
+  function setupProgressListener() {
+    window.electronAPI?.onDownloadProgress((progress: DownloadProgress) => {
+      const task = downloadStore.downloadingTasks.find(t => t.id === progress.taskId)
+      if (!task) return
+
+      if (progress.status === 'downloading') {
+        downloadStore.updateTaskProgress(
+          task.id,
+          progress.progress,
+          progress.speed,
+          progress.downloadedSize
+        )
+      } else if (progress.status === 'completed') {
+        downloadStore.moveToCompleted(task, true)
+        processWaitingQueue()
+      } else if (progress.status === 'error') {
+        task.error = progress.error || '下载失败'
+        downloadStore.moveToCompleted(task, false)
+        processWaitingQueue()
+      } else if (progress.status === 'paused') {
+        task.status = 'paused'
+      }
+    })
+  }
+
+  // 移除进度监听
+  function removeProgressListener() {
+    window.electronAPI?.removeDownloadProgressListener()
+  }
 
   // 处理等待队列
   async function processWaitingQueue() {
@@ -68,21 +107,21 @@ export function useDownloadManager() {
       const localPath = path.join(localDir, nextTask.file.server_filename)
       nextTask.localPath = localPath
 
-      // 添加到aria2
-      const gid = await aria2.addUri(linkData.url, {
-        dir: localDir,
-        out: nextTask.file.server_filename,
+      // 使用内置下载器开始下载
+      const result = await window.electronAPI?.startDownload(nextTask.id, {
+        url: linkData.url,
+        savePath: localDir,
+        filename: nextTask.file.server_filename,
         userAgent: linkData.ua
       })
 
-      nextTask.gid = gid
-
-      // 移动到下载中
-      downloadStore.moveToDownloading(nextTask)
-      errorCount.value = 0
-
-      // 开始监控下载进度
-      startProgressMonitor(nextTask)
+      if (result?.success) {
+        // 移动到下载中
+        downloadStore.moveToDownloading(nextTask)
+        errorCount.value = 0
+      } else {
+        throw new Error(result?.error || '启动下载失败')
+      }
     } catch (error: any) {
       console.error('获取下载链接失败:', error)
       nextTask.retryCount++
@@ -106,41 +145,19 @@ export function useDownloadManager() {
     setTimeout(processWaitingQueue, 500)
   }
 
-  // 监控下载进度
-  function startProgressMonitor(task: DownloadTask) {
-    const interval = setInterval(async () => {
-      if (!task.gid) {
-        clearInterval(interval)
-        return
-      }
+  // 暂停下载
+  async function pauseTask(taskId: string) {
+    await window.electronAPI?.pauseDownload(taskId)
+  }
 
-      try {
-        const status = await aria2.tellStatus(task.gid)
+  // 恢复下载
+  async function resumeTask(taskId: string) {
+    await window.electronAPI?.resumeDownload(taskId)
+  }
 
-        const totalLength = parseInt(status.totalLength) || task.totalSize
-        const completedLength = parseInt(status.completedLength) || 0
-        const downloadSpeed = parseInt(status.downloadSpeed) || 0
-        const progress = totalLength > 0 ? (completedLength / totalLength) * 100 : 0
-
-        downloadStore.updateTaskProgress(task.id, progress, downloadSpeed, completedLength)
-
-        // 检查是否完成
-        if (status.status === 'complete') {
-          clearInterval(interval)
-          downloadStore.moveToCompleted(task, true)
-          processWaitingQueue()
-        } else if (status.status === 'error') {
-          clearInterval(interval)
-          task.error = status.errorMessage || '下载失败'
-          downloadStore.moveToCompleted(task, false)
-          processWaitingQueue()
-        } else if (status.status === 'removed') {
-          clearInterval(interval)
-        }
-      } catch (error) {
-        console.error('获取下载状态失败:', error)
-      }
-    }, 1000)
+  // 取消下载
+  async function cancelTask(taskId: string) {
+    await window.electronAPI?.cancelDownload(taskId)
   }
 
   // 开始下载
@@ -153,11 +170,26 @@ export function useDownloadManager() {
     errorCount.value = 0
   }
 
+  // 组件挂载时设置监听
+  onMounted(() => {
+    setupProgressListener()
+  })
+
+  // 组件卸载时移除监听
+  onUnmounted(() => {
+    removeProgressListener()
+  })
+
   return {
     isProcessing,
     errorCount,
     startDownload,
     processWaitingQueue,
-    resetErrorCount
+    resetErrorCount,
+    pauseTask,
+    resumeTask,
+    cancelTask,
+    setupProgressListener,
+    removeProgressListener
   }
 }
