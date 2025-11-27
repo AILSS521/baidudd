@@ -25,6 +25,7 @@ interface ChunkInfo {
   start: number
   end: number
   downloaded: number
+  currentPosition: number // 当前写入位置
   status: 'pending' | 'downloading' | 'completed' | 'error'
   retries: number
 }
@@ -52,7 +53,9 @@ export class MultiThreadDownloader extends EventEmitter {
   private downloadedSize: number = 0
   private chunks: ChunkInfo[] = []
   private activeRequests: Map<number, http.ClientRequest> = new Map()
-  private tempFiles: string[] = []
+  private filePath: string = '' // 最终文件路径
+  private tempFilePath: string = '' // 临时文件路径（.downloading 后缀）
+  private fileHandle: fs.promises.FileHandle | null = null // 文件句柄
   private isPaused: boolean = false
   private isAborted: boolean = false
   private lastProgressTime: number = 0
@@ -138,44 +141,6 @@ export class MultiThreadDownloader extends EventEmitter {
     })
   }
 
-  // 检查是否支持 Range 请求
-  private checkRangeSupport(): Promise<boolean> {
-    return new Promise((resolve) => {
-      const urlObj = new URL(this.url)
-      const client = urlObj.protocol === 'https:' ? https : http
-
-      const req = client.request(this.url, {
-        method: 'HEAD',
-        headers: {
-          ...this.headers,
-          'Range': 'bytes=0-0'
-        },
-        timeout: 30000
-      }, (res) => {
-        // 处理重定向
-        if (res.statusCode === 301 || res.statusCode === 302) {
-          const redirectUrl = res.headers.location
-          if (redirectUrl) {
-            this.url = redirectUrl
-            // 递归检查重定向后的URL
-            this.checkRangeSupport().then(resolve)
-            return
-          }
-        }
-        // 206 表示支持 Range，有些服务器返回 200 但在 Accept-Ranges 头中声明支持
-        const acceptRanges = res.headers['accept-ranges']
-        resolve(res.statusCode === 206 || acceptRanges === 'bytes')
-      })
-
-      req.on('error', () => resolve(false))
-      req.on('timeout', () => {
-        req.destroy()
-        resolve(false)
-      })
-      req.end()
-    })
-  }
-
   // 单线程下载
   private singleThreadDownload(): Promise<void> {
     return new Promise((resolve, reject) => {
@@ -232,6 +197,13 @@ export class MultiThreadDownloader extends EventEmitter {
 
   // 多线程下载
   private async multiThreadDownload(): Promise<void> {
+    // 设置文件路径
+    this.filePath = path.join(this.savePath, this.filename)
+    this.tempFilePath = this.filePath + '.downloading'
+
+    // 预分配文件空间
+    await this.preallocateFile()
+
     // 计算分片
     const chunkSize = Math.max(
       MIN_CHUNK_SIZE,
@@ -248,10 +220,10 @@ export class MultiThreadDownloader extends EventEmitter {
         start,
         end,
         downloaded: 0,
+        currentPosition: start, // 当前写入位置
         status: 'pending',
         retries: 0
       })
-      this.tempFiles.push(path.join(this.savePath, `${this.filename}.part${index}`))
       start = end + 1
       index++
     }
@@ -271,7 +243,8 @@ export class MultiThreadDownloader extends EventEmitter {
       }
 
       if (this.isPaused) {
-        // 暂停状态，不合并文件，等待恢复
+        // 暂停状态，关闭文件句柄，等待恢复
+        await this.closeFileHandle()
         this.stopProgressTimer()
         return
       }
@@ -280,18 +253,41 @@ export class MultiThreadDownloader extends EventEmitter {
       const allCompleted = this.chunks.every(c => c.status === 'completed')
       if (!allCompleted) {
         // 有分片未完成，可能是暂停导致的
+        await this.closeFileHandle()
         this.stopProgressTimer()
         return
       }
 
-      // 合并文件
-      await this.mergeChunks()
+      // 关闭文件句柄
+      await this.closeFileHandle()
+
+      // 重命名临时文件为最终文件
+      await fs.promises.rename(this.tempFilePath, this.filePath)
+
       this.stopProgressTimer()
       this.emitProgress('completed')
     } catch (error) {
       this.stopProgressTimer()
       await this.cleanup()
       throw error
+    }
+  }
+
+  // 预分配文件空间
+  private async preallocateFile(): Promise<void> {
+    // 打开文件（创建或覆盖）
+    this.fileHandle = await fs.promises.open(this.tempFilePath, 'w')
+
+    // 预分配空间：写入一个字节到文件末尾
+    // 这会让文件系统分配整个文件大小的空间
+    await this.fileHandle.write(Buffer.alloc(1), 0, 1, this.totalSize - 1)
+  }
+
+  // 关闭文件句柄
+  private async closeFileHandle(): Promise<void> {
+    if (this.fileHandle) {
+      await this.fileHandle.close()
+      this.fileHandle = null
     }
   }
 
@@ -304,48 +300,49 @@ export class MultiThreadDownloader extends EventEmitter {
       }
 
       chunk.status = 'downloading'
-      const tempPath = this.tempFiles[chunk.index]
-      // 如果已下载部分数据，则追加写入；否则从头写入
-      const fileStream = chunk.downloaded > 0
-        ? fs.createWriteStream(tempPath, { flags: 'a' })
-        : fs.createWriteStream(tempPath)
       const urlObj = new URL(this.url)
       const client = urlObj.protocol === 'https:' ? https : http
 
       const req = client.get(this.url, {
         headers: {
           ...this.headers,
-          'Range': `bytes=${chunk.start + chunk.downloaded}-${chunk.end}`
+          'Range': `bytes=${chunk.currentPosition}-${chunk.end}`
         }
       }, (res) => {
         if (res.statusCode === 301 || res.statusCode === 302) {
           const redirectUrl = res.headers.location
           if (redirectUrl) {
             this.url = redirectUrl
-            fileStream.close()
             this.downloadChunk(chunk).then(resolve).catch(reject)
             return
           }
         }
 
         if (res.statusCode !== 206 && res.statusCode !== 200) {
-          fileStream.close()
           this.handleChunkError(chunk, new Error(`HTTP 错误: ${res.statusCode}`), resolve, reject)
           return
         }
 
-        res.on('data', (data: Buffer) => {
+        res.on('data', async (data: Buffer) => {
           if (this.isPaused || this.isAborted) {
             req.destroy()
             return
           }
-          chunk.downloaded += data.length
-          this.downloadedSize += data.length
+
+          // 直接写入文件的指定位置
+          if (this.fileHandle) {
+            try {
+              await this.fileHandle.write(data, 0, data.length, chunk.currentPosition)
+              chunk.currentPosition += data.length
+              chunk.downloaded += data.length
+              this.downloadedSize += data.length
+            } catch (err) {
+              // 写入失败，忽略（可能是文件句柄已关闭）
+            }
+          }
         })
 
-        res.pipe(fileStream)
-
-        fileStream.on('finish', () => {
+        res.on('end', () => {
           this.activeRequests.delete(chunk.index)
           // 只有当分片确实完整下载时才标记为完成
           const expectedSize = chunk.end - chunk.start + 1
@@ -359,7 +356,6 @@ export class MultiThreadDownloader extends EventEmitter {
         })
 
         res.on('error', (err) => {
-          fileStream.close()
           // 如果是暂停或取消导致的错误，直接 resolve
           if (this.isPaused || this.isAborted) {
             this.activeRequests.delete(chunk.index)
@@ -371,7 +367,6 @@ export class MultiThreadDownloader extends EventEmitter {
       })
 
       req.on('error', (err) => {
-        fileStream.close()
         // 如果是暂停或取消导致的错误，直接 resolve
         if (this.isPaused || this.isAborted) {
           this.activeRequests.delete(chunk.index)
@@ -383,7 +378,6 @@ export class MultiThreadDownloader extends EventEmitter {
 
       req.on('timeout', () => {
         req.destroy()
-        fileStream.close()
         this.handleChunkError(chunk, new Error('下载超时'), resolve, reject)
       })
 
@@ -412,39 +406,13 @@ export class MultiThreadDownloader extends EventEmitter {
     }
   }
 
-  // 合并分片文件
-  private async mergeChunks(): Promise<void> {
-    const finalPath = path.join(this.savePath, this.filename)
-    const writeStream = fs.createWriteStream(finalPath)
-
-    for (const tempFile of this.tempFiles) {
-      const data = await fs.promises.readFile(tempFile)
-      writeStream.write(data)
-    }
-
-    writeStream.end()
-
-    // 等待写入完成
-    await new Promise<void>((resolve, reject) => {
-      writeStream.on('finish', resolve)
-      writeStream.on('error', reject)
-    })
-
-    // 删除临时文件
-    for (const tempFile of this.tempFiles) {
-      try {
-        await fs.promises.unlink(tempFile)
-      } catch {
-        // 忽略删除失败
-      }
-    }
-  }
-
   // 清理临时文件
   private async cleanup(): Promise<void> {
-    for (const tempFile of this.tempFiles) {
+    await this.closeFileHandle()
+    // 删除临时文件
+    if (this.tempFilePath) {
       try {
-        await fs.promises.unlink(tempFile)
+        await fs.promises.unlink(this.tempFilePath)
       } catch {
         // 忽略
       }
@@ -492,7 +460,7 @@ export class MultiThreadDownloader extends EventEmitter {
   }
 
   // 暂停下载
-  pause() {
+  async pause() {
     this.isPaused = true
     this.stopProgressTimer()
     // 停止所有活动请求
@@ -504,6 +472,8 @@ export class MultiThreadDownloader extends EventEmitter {
         chunk.status = 'pending'
       }
     })
+    // 关闭文件句柄
+    await this.closeFileHandle()
     this.emitProgress('paused')
   }
 
@@ -516,6 +486,11 @@ export class MultiThreadDownloader extends EventEmitter {
     // 重新下载未完成的分片
     const pendingChunks = this.chunks.filter(c => c.status !== 'completed')
     if (pendingChunks.length > 0) {
+      // 重新打开文件句柄（读写模式）
+      if (this.tempFilePath) {
+        this.fileHandle = await fs.promises.open(this.tempFilePath, 'r+')
+      }
+
       this.startProgressTimer()
       try {
         const promises = pendingChunks.map(chunk => this.downloadChunk(chunk))
@@ -529,7 +504,8 @@ export class MultiThreadDownloader extends EventEmitter {
         }
 
         if (this.isPaused) {
-          // 暂停状态，不合并文件，等待恢复
+          // 暂停状态，关闭文件句柄，等待恢复
+          await this.closeFileHandle()
           this.stopProgressTimer()
           return
         }
@@ -538,16 +514,22 @@ export class MultiThreadDownloader extends EventEmitter {
         const allCompleted = this.chunks.every(c => c.status === 'completed')
         if (!allCompleted) {
           // 有分片未完成，可能是暂停导致的
+          await this.closeFileHandle()
           this.stopProgressTimer()
           return
         }
 
-        // 所有分片完成，合并文件
-        await this.mergeChunks()
+        // 关闭文件句柄
+        await this.closeFileHandle()
+
+        // 重命名临时文件为最终文件
+        await fs.promises.rename(this.tempFilePath, this.filePath)
+
         this.stopProgressTimer()
         this.emitProgress('completed')
       } catch (error: any) {
         this.stopProgressTimer()
+        await this.closeFileHandle()
         this.emitProgress('error', error.message)
       }
     } else if (this.chunks.length === 0) {
@@ -556,9 +538,9 @@ export class MultiThreadDownloader extends EventEmitter {
       // 发送错误提示
       this.emitProgress('error', '单线程下载不支持断点续传，请重新下载')
     } else {
-      // 所有分片已完成，直接合并
+      // 所有分片已完成，直接重命名
       try {
-        await this.mergeChunks()
+        await fs.promises.rename(this.tempFilePath, this.filePath)
         this.emitProgress('completed')
       } catch (error: any) {
         this.emitProgress('error', error.message)
