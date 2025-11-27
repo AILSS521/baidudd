@@ -310,6 +310,9 @@ export class MultiThreadDownloader extends EventEmitter {
       const urlObj = new URL(this.url)
       const client = urlObj.protocol === 'https:' ? https : http
 
+      // 用于顺序写入的队列
+      let writeQueue: Promise<void> = Promise.resolve()
+
       const req = client.get(this.url, {
         headers: {
           ...this.headers,
@@ -330,36 +333,44 @@ export class MultiThreadDownloader extends EventEmitter {
           return
         }
 
-        res.on('data', async (data: Buffer) => {
+        res.on('data', (data: Buffer) => {
           if (this.isPaused || this.isAborted) {
             req.destroy()
             return
           }
 
-          // 直接写入文件的指定位置
-          if (this.fileHandle) {
-            try {
-              await this.fileHandle.write(data, 0, data.length, chunk.currentPosition)
-              chunk.currentPosition += data.length
-              chunk.downloaded += data.length
-              this.downloadedSize += data.length
-            } catch (err) {
-              // 写入失败，忽略（可能是文件句柄已关闭）
+          // 记录当前写入位置
+          const writePosition = chunk.currentPosition
+          chunk.currentPosition += data.length
+          chunk.downloaded += data.length
+          this.downloadedSize += data.length
+
+          // 将写入操作加入队列，确保顺序执行
+          writeQueue = writeQueue.then(async () => {
+            if (this.fileHandle && !this.isPaused && !this.isAborted) {
+              try {
+                await this.fileHandle.write(data, 0, data.length, writePosition)
+              } catch (err) {
+                // 写入失败，忽略（可能是文件句柄已关闭）
+              }
             }
-          }
+          })
         })
 
         res.on('end', () => {
-          this.activeRequests.delete(chunk.index)
-          // 只有当分片确实完整下载时才标记为完成
-          const expectedSize = chunk.end - chunk.start + 1
-          if (chunk.downloaded >= expectedSize) {
-            chunk.status = 'completed'
-          } else if (!this.isPaused && !this.isAborted) {
-            // 如果没有暂停/取消但下载不完整，标记为 pending 以便重试
-            chunk.status = 'pending'
-          }
-          resolve()
+          // 等待所有写入完成后再标记状态
+          writeQueue.then(() => {
+            this.activeRequests.delete(chunk.index)
+            // 只有当分片确实完整下载时才标记为完成
+            const expectedSize = chunk.end - chunk.start + 1
+            if (chunk.downloaded >= expectedSize) {
+              chunk.status = 'completed'
+            } else if (!this.isPaused && !this.isAborted) {
+              // 如果没有暂停/取消但下载不完整，标记为 pending 以便重试
+              chunk.status = 'pending'
+            }
+            resolve()
+          })
         })
 
         res.on('error', (err) => {
