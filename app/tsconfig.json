@@ -20,6 +20,7 @@
     },
     "baseUrl": "."
   },
-  "include": ["src/**/*.ts", "src/**/*.tsx", "src/**/*.vue", "electron/**/*.ts"],
+  "include": ["src/**/*.ts", "src/**/*.tsx", "src/**/*.vue"],
+  "exclude": ["node_modules", "dist", "dist-electron", "electron"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }
