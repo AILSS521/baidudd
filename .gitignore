@@ -5,6 +5,7 @@ node_modules/
 # Build outputs
 app/dist/
 app/dist-electron/
+app/dist-typecheck/
 app/release/
 
 # IDE
