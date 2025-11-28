@@ -20,10 +20,25 @@ export interface FileItem {
 // error: 异常
 export type TaskStatus = 'waiting' | 'processing' | 'creating' | 'downloading' | 'paused' | 'completed' | 'error'
 
+// 子文件任务（文件夹内的单个文件）
+export interface SubFileTask {
+  file: FileItem
+  status: TaskStatus
+  progress: number
+  speed: number
+  downloadedSize: number
+  totalSize: number
+  retryCount: number
+  error?: string
+  downloadUrl?: string
+  ua?: string
+  localPath?: string
+}
+
 // 下载任务
 export interface DownloadTask {
   id: string
-  file: FileItem
+  file: FileItem // 对于文件夹任务，这是文件夹本身的信息
   status: TaskStatus
   progress: number
   speed: number
@@ -38,6 +53,13 @@ export interface DownloadTask {
   ua?: string
   localPath?: string
   downloadBasePath?: string | null // 下载基础路径，null 表示直接放在下载目录，不创建子目录
+
+  // 文件夹任务专用字段
+  isFolder?: boolean // 是否是文件夹任务
+  subFiles?: SubFileTask[] // 文件夹内的所有文件
+  completedCount?: number // 已完成的文件数量
+  totalCount?: number // 总文件数量
+  currentFileIndex?: number // 当前正在下载的文件索引
 }
 
 // API响应

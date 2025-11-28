@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import type { FileItem, DownloadTask, TaskStatus } from '@/types'
+import type { FileItem, DownloadTask, TaskStatus, SubFileTask } from '@/types'
 
 export const useDownloadStore = defineStore('download', () => {
   // 状态 - 合并等待和下载中为一个列表
@@ -49,7 +49,7 @@ export const useDownloadStore = defineStore('download', () => {
     basePath.value = path
   }
 
-  // 添加任务到下载列表
+  // 添加单个文件任务到下载列表
   function addToDownload(files: FileItem[], downloadBasePath: string | null = null) {
     const newTasks: DownloadTask[] = files.map(file => ({
       id: `${Date.now()}-${file.fs_id}`,
@@ -61,9 +61,47 @@ export const useDownloadStore = defineStore('download', () => {
       totalSize: file.size,
       createdAt: Date.now(),
       retryCount: 0,
-      downloadBasePath
+      downloadBasePath,
+      isFolder: false
     }))
     downloadTasks.value.push(...newTasks)
+  }
+
+  // 添加文件夹任务到下载列表
+  function addFolderToDownload(folder: FileItem, files: FileItem[], downloadBasePath: string) {
+    // 计算总大小
+    const totalSize = files.reduce((sum, f) => sum + f.size, 0)
+
+    // 创建子文件任务列表
+    const subFiles: SubFileTask[] = files.map(file => ({
+      file,
+      status: 'waiting' as TaskStatus,
+      progress: 0,
+      speed: 0,
+      downloadedSize: 0,
+      totalSize: file.size,
+      retryCount: 0
+    }))
+
+    const folderTask: DownloadTask = {
+      id: `${Date.now()}-folder-${folder.fs_id}`,
+      file: folder,
+      status: 'waiting' as TaskStatus,
+      progress: 0,
+      speed: 0,
+      downloadedSize: 0,
+      totalSize,
+      createdAt: Date.now(),
+      retryCount: 0,
+      downloadBasePath,
+      isFolder: true,
+      subFiles,
+      completedCount: 0,
+      totalCount: files.length,
+      currentFileIndex: 0
+    }
+
+    downloadTasks.value.push(folderTask)
   }
 
   // 从下载列表移除任务
@@ -100,6 +138,76 @@ export const useDownloadStore = defineStore('download', () => {
       if (task.status !== 'downloading') {
         task.status = 'downloading'
       }
+    }
+  }
+
+  // 更新文件夹任务中子文件的进度
+  function updateFolderSubFileProgress(taskId: string, fileIndex: number, progress: number, speed: number, downloadedSize: number) {
+    const task = downloadTasks.value.find(t => t.id === taskId)
+    if (task && task.isFolder && task.subFiles && task.subFiles[fileIndex]) {
+      const subFile = task.subFiles[fileIndex]
+      subFile.progress = progress
+      subFile.speed = speed
+      subFile.downloadedSize = downloadedSize
+      subFile.status = 'downloading'
+
+      // 更新文件夹总体进度
+      task.speed = speed
+      task.downloadedSize = task.subFiles.reduce((sum, sf) => sum + sf.downloadedSize, 0)
+      task.progress = task.totalSize > 0 ? (task.downloadedSize / task.totalSize) * 100 : 0
+      task.currentFileIndex = fileIndex
+
+      if (task.status !== 'downloading') {
+        task.status = 'downloading'
+      }
+    }
+  }
+
+  // 标记文件夹中的子文件完成
+  function markFolderSubFileCompleted(taskId: string, fileIndex: number, success: boolean, error?: string) {
+    const task = downloadTasks.value.find(t => t.id === taskId)
+    if (task && task.isFolder && task.subFiles && task.subFiles[fileIndex]) {
+      const subFile = task.subFiles[fileIndex]
+      subFile.status = success ? 'completed' : 'error'
+      if (error) subFile.error = error
+      if (success) {
+        subFile.progress = 100
+        subFile.downloadedSize = subFile.totalSize
+      }
+
+      // 更新已完成数量
+      task.completedCount = task.subFiles.filter(sf => sf.status === 'completed').length
+
+      // 更新文件夹总体下载量
+      task.downloadedSize = task.subFiles.reduce((sum, sf) => sum + sf.downloadedSize, 0)
+      task.progress = task.totalSize > 0 ? (task.downloadedSize / task.totalSize) * 100 : 0
+
+      // 检查是否所有文件都完成了
+      const allCompleted = task.subFiles.every(sf => sf.status === 'completed' || sf.status === 'error')
+      if (allCompleted) {
+        const allSuccess = task.subFiles.every(sf => sf.status === 'completed')
+        moveToCompleted(task, allSuccess)
+      }
+    }
+  }
+
+  // 获取文件夹中下一个等待的子文件
+  function getNextWaitingSubFile(taskId: string): { index: number; subFile: SubFileTask } | undefined {
+    const task = downloadTasks.value.find(t => t.id === taskId)
+    if (task && task.isFolder && task.subFiles) {
+      const index = task.subFiles.findIndex(sf => sf.status === 'waiting')
+      if (index !== -1) {
+        return { index, subFile: task.subFiles[index] }
+      }
+    }
+    return undefined
+  }
+
+  // 更新文件夹子文件状态
+  function updateFolderSubFileStatus(taskId: string, fileIndex: number, status: TaskStatus) {
+    const task = downloadTasks.value.find(t => t.id === taskId)
+    if (task && task.isFolder && task.subFiles && task.subFiles[fileIndex]) {
+      task.subFiles[fileIndex].status = status
     }
   }
 
@@ -191,10 +299,15 @@ export const useDownloadStore = defineStore('download', () => {
     setBasePath,
     setSessionData,
     addToDownload,
+    addFolderToDownload,
     removeFromDownload,
     moveToCompleted,
     updateTaskStatus,
     updateTaskProgress,
+    updateFolderSubFileProgress,
+    markFolderSubFileCompleted,
+    getNextWaitingSubFile,
+    updateFolderSubFileStatus,
     pauseTask,
     resumeTask,
     pauseAll,

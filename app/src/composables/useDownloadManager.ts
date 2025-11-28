@@ -2,12 +2,15 @@ import { ref } from 'vue'
 import { useDownloadStore } from '@/stores/download'
 import { useSettingsStore } from '@/stores/settings'
 import { useApi } from './useApi'
-import type { DownloadProgress } from '@/types'
+import type { DownloadProgress, DownloadTask } from '@/types'
 import path from 'path-browserify'
 
 const MAX_CONCURRENT_DOWNLOADS = 3
 const MAX_RETRY = 3
 const RETRY_DELAY = 5000
+
+// 用于跟踪文件夹任务中当前正在下载的子文件
+const folderDownloadMap = ref<Map<string, { taskId: string; fileIndex: number }>>(new Map())
 
 export function useDownloadManager() {
   const downloadStore = useDownloadStore()
@@ -20,25 +23,60 @@ export function useDownloadManager() {
   // 设置进度监听
   function setupProgressListener() {
     window.electronAPI?.onDownloadProgress((progress: DownloadProgress) => {
-      const task = downloadStore.downloadTasks.find(t => t.id === progress.taskId)
-      if (!task) return
+      // 检查是否是文件夹子文件的下载
+      const folderInfo = folderDownloadMap.value.get(progress.taskId)
 
-      if (progress.status === 'downloading') {
-        downloadStore.updateTaskProgress(
-          task.id,
-          progress.progress,
-          progress.speed,
-          progress.downloadedSize
-        )
-      } else if (progress.status === 'completed') {
-        downloadStore.moveToCompleted(task, true)
-        processQueue()
-      } else if (progress.status === 'error') {
-        task.error = progress.error || '下载失败'
-        downloadStore.moveToCompleted(task, false)
-        processQueue()
-      } else if (progress.status === 'paused') {
-        task.status = 'paused'
+      if (folderInfo) {
+        // 这是文件夹子文件的下载
+        const task = downloadStore.downloadTasks.find(t => t.id === folderInfo.taskId)
+        if (!task) return
+
+        if (progress.status === 'downloading') {
+          downloadStore.updateFolderSubFileProgress(
+            folderInfo.taskId,
+            folderInfo.fileIndex,
+            progress.progress,
+            progress.speed,
+            progress.downloadedSize
+          )
+        } else if (progress.status === 'completed') {
+          downloadStore.markFolderSubFileCompleted(folderInfo.taskId, folderInfo.fileIndex, true)
+          folderDownloadMap.value.delete(progress.taskId)
+          // 继续下载文件夹中的下一个文件
+          processFolderNextFile(task)
+        } else if (progress.status === 'error') {
+          downloadStore.markFolderSubFileCompleted(folderInfo.taskId, folderInfo.fileIndex, false, progress.error || '下载失败')
+          folderDownloadMap.value.delete(progress.taskId)
+          // 继续下载文件夹中的下一个文件
+          processFolderNextFile(task)
+        } else if (progress.status === 'paused') {
+          // 文件夹暂停时，子文件也标记暂停
+          if (task.subFiles && task.subFiles[folderInfo.fileIndex]) {
+            task.subFiles[folderInfo.fileIndex].status = 'paused'
+          }
+        }
+      } else {
+        // 普通文件下载
+        const task = downloadStore.downloadTasks.find(t => t.id === progress.taskId)
+        if (!task) return
+
+        if (progress.status === 'downloading') {
+          downloadStore.updateTaskProgress(
+            task.id,
+            progress.progress,
+            progress.speed,
+            progress.downloadedSize
+          )
+        } else if (progress.status === 'completed') {
+          downloadStore.moveToCompleted(task, true)
+          processQueue()
+        } else if (progress.status === 'error') {
+          task.error = progress.error || '下载失败'
+          downloadStore.moveToCompleted(task, false)
+          processQueue()
+        } else if (progress.status === 'paused') {
+          task.status = 'paused'
+        }
       }
     })
   }
@@ -69,7 +107,24 @@ export function useDownloadManager() {
     if (!nextTask) return
 
     isProcessing.value = true
-    downloadStore.updateTaskStatus(nextTask.id, 'processing')
+
+    if (nextTask.isFolder) {
+      // 处理文件夹任务
+      await processFolderTask(nextTask)
+    } else {
+      // 处理单个文件任务
+      await processFileTask(nextTask)
+    }
+
+    isProcessing.value = false
+
+    // 继续处理队列
+    setTimeout(processQueue, 500)
+  }
+
+  // 处理单个文件任务
+  async function processFileTask(task: DownloadTask) {
+    downloadStore.updateTaskStatus(task.id, 'processing')
 
     try {
       // 获取下载链接
@@ -78,30 +133,30 @@ export function useDownloadManager() {
         randsk: downloadStore.sessionData!.randsk,
         uk: downloadStore.sessionData!.uk,
         shareid: downloadStore.sessionData!.shareid,
-        fs_id: nextTask.file.fs_id,
+        fs_id: task.file.fs_id,
         surl: downloadStore.sessionData!.surl,
-        dir: path.dirname(nextTask.file.path) || '/',
+        dir: path.dirname(task.file.path) || '/',
         pwd: downloadStore.sessionData!.pwd
       })
 
-      nextTask.downloadUrl = linkData.url
-      nextTask.ua = linkData.ua
+      task.downloadUrl = linkData.url
+      task.ua = linkData.ua
 
       // 更新状态为创建文件中
-      downloadStore.updateTaskStatus(nextTask.id, 'creating')
+      downloadStore.updateTaskStatus(task.id, 'creating')
 
       // 计算本地路径
       let localDir: string
-      if (nextTask.downloadBasePath === null || nextTask.downloadBasePath === undefined) {
+      if (task.downloadBasePath === null || task.downloadBasePath === undefined) {
         // 单个文件下载，直接放在下载目录根目录
         localDir = settingsStore.downloadPath
       } else {
         // 文件夹下载，计算相对于下载基础路径的子目录
-        const fileDirPath = path.dirname(nextTask.file.path)
+        const fileDirPath = path.dirname(task.file.path)
         // 获取相对于 downloadBasePath 的路径
         let relativePath = ''
-        if (fileDirPath.startsWith(nextTask.downloadBasePath)) {
-          relativePath = fileDirPath.slice(nextTask.downloadBasePath.length)
+        if (fileDirPath.startsWith(task.downloadBasePath)) {
+          relativePath = fileDirPath.slice(task.downloadBasePath.length)
           if (relativePath.startsWith('/')) {
             relativePath = relativePath.slice(1)
           }
@@ -110,45 +165,146 @@ export function useDownloadManager() {
           ? path.join(settingsStore.downloadPath, relativePath)
           : settingsStore.downloadPath
       }
-      const localPath = path.join(localDir, nextTask.file.server_filename)
-      nextTask.localPath = localPath
+      const localPath = path.join(localDir, task.file.server_filename)
+      task.localPath = localPath
 
       // 使用内置下载器开始下载
-      const result = await window.electronAPI?.startDownload(nextTask.id, {
+      const result = await window.electronAPI?.startDownload(task.id, {
         url: linkData.url,
         savePath: localDir,
-        filename: nextTask.file.server_filename,
+        filename: task.file.server_filename,
         userAgent: linkData.ua
       })
 
       if (result?.success) {
         // 更新为下载中状态
-        downloadStore.updateTaskStatus(nextTask.id, 'downloading')
+        downloadStore.updateTaskStatus(task.id, 'downloading')
         errorCount.value = 0
       } else {
         throw new Error(result?.error || '启动下载失败')
       }
     } catch (error: any) {
       console.error('获取下载链接失败:', error)
-      nextTask.retryCount++
+      task.retryCount++
 
-      if (nextTask.retryCount >= MAX_RETRY) {
-        nextTask.status = 'error'
-        nextTask.error = error.message || '获取下载链接失败'
+      if (task.retryCount >= MAX_RETRY) {
+        task.status = 'error'
+        task.error = error.message || '获取下载链接失败'
         errorCount.value++
       } else {
         // 等待后重试
         setTimeout(() => {
-          nextTask.status = 'waiting'
+          task.status = 'waiting'
           processQueue()
         }, RETRY_DELAY)
       }
-    } finally {
-      isProcessing.value = false
+    }
+  }
+
+  // 处理文件夹任务
+  async function processFolderTask(task: DownloadTask) {
+    downloadStore.updateTaskStatus(task.id, 'processing')
+    // 开始下载文件夹中的第一个文件
+    await processFolderNextFile(task)
+  }
+
+  // 处理文件夹中的下一个文件
+  async function processFolderNextFile(task: DownloadTask) {
+    if (!task.isFolder || !task.subFiles) return
+
+    // 检查任务是否被暂停
+    if (task.status === 'paused') return
+
+    // 获取下一个等待的子文件
+    const nextSubFile = downloadStore.getNextWaitingSubFile(task.id)
+    if (!nextSubFile) {
+      // 没有更多文件需要下载，检查是否全部完成
+      const allDone = task.subFiles.every(sf => sf.status === 'completed' || sf.status === 'error')
+      if (allDone) {
+        const allSuccess = task.subFiles.every(sf => sf.status === 'completed')
+        downloadStore.moveToCompleted(task, allSuccess)
+        processQueue()
+      }
+      return
     }
 
-    // 继续处理队列
-    setTimeout(processQueue, 500)
+    const { index, subFile } = nextSubFile
+    downloadStore.updateFolderSubFileStatus(task.id, index, 'processing')
+
+    try {
+      // 获取下载链接
+      const linkData = await api.getDownloadLink({
+        code: downloadStore.currentCode,
+        randsk: downloadStore.sessionData!.randsk,
+        uk: downloadStore.sessionData!.uk,
+        shareid: downloadStore.sessionData!.shareid,
+        fs_id: subFile.file.fs_id,
+        surl: downloadStore.sessionData!.surl,
+        dir: path.dirname(subFile.file.path) || '/',
+        pwd: downloadStore.sessionData!.pwd
+      })
+
+      subFile.downloadUrl = linkData.url
+      subFile.ua = linkData.ua
+
+      // 更新状态为创建文件中
+      downloadStore.updateFolderSubFileStatus(task.id, index, 'creating')
+      if (task.status !== 'downloading') {
+        downloadStore.updateTaskStatus(task.id, 'downloading')
+      }
+
+      // 计算本地路径
+      const fileDirPath = path.dirname(subFile.file.path)
+      let relativePath = ''
+      if (task.downloadBasePath && fileDirPath.startsWith(task.downloadBasePath)) {
+        relativePath = fileDirPath.slice(task.downloadBasePath.length)
+        if (relativePath.startsWith('/')) {
+          relativePath = relativePath.slice(1)
+        }
+      }
+      const localDir = relativePath
+        ? path.join(settingsStore.downloadPath, relativePath)
+        : settingsStore.downloadPath
+      const localPath = path.join(localDir, subFile.file.server_filename)
+      subFile.localPath = localPath
+
+      // 生成子文件的下载 ID
+      const subFileDownloadId = `${task.id}-sub-${index}`
+
+      // 记录文件夹下载映射
+      folderDownloadMap.value.set(subFileDownloadId, { taskId: task.id, fileIndex: index })
+
+      // 使用内置下载器开始下载
+      const result = await window.electronAPI?.startDownload(subFileDownloadId, {
+        url: linkData.url,
+        savePath: localDir,
+        filename: subFile.file.server_filename,
+        userAgent: linkData.ua
+      })
+
+      if (result?.success) {
+        downloadStore.updateFolderSubFileStatus(task.id, index, 'downloading')
+        errorCount.value = 0
+      } else {
+        throw new Error(result?.error || '启动下载失败')
+      }
+    } catch (error: any) {
+      console.error('获取下载链接失败:', error)
+      subFile.retryCount++
+
+      if (subFile.retryCount >= MAX_RETRY) {
+        downloadStore.markFolderSubFileCompleted(task.id, index, false, error.message || '获取下载链接失败')
+        errorCount.value++
+        // 继续下载下一个文件
+        await processFolderNextFile(task)
+      } else {
+        // 等待后重试
+        setTimeout(() => {
+          subFile.status = 'waiting'
+          processFolderNextFile(task)
+        }, RETRY_DELAY)
+      }
+    }
   }
 
   // 暂停下载
@@ -186,6 +342,7 @@ export function useDownloadManager() {
     resumeTask,
     cancelTask,
     setupProgressListener,
-    removeProgressListener
+    removeProgressListener,
+    processFolderNextFile
   }
 }

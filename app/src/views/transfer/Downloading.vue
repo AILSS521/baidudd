@@ -79,9 +79,11 @@
               <div class="progress-text">
                 <template v-if="task.status === 'paused'">
                   已暂停 · {{ task.progress.toFixed(1) }}%
+                  <template v-if="task.isFolder"> · 剩余 {{ getRemainingCount(task) }} 个文件</template>
                 </template>
                 <template v-else>
                   {{ formatSpeed(task.speed) }} · {{ task.progress.toFixed(1) }}%
+                  <template v-if="task.isFolder"> · 剩余 {{ getRemainingCount(task) }} 个文件</template>
                 </template>
               </div>
             </div>
@@ -90,6 +92,7 @@
           <template v-else>
             <div class="task-status" :class="task.status">
               {{ getStatusText(task.status) }}
+              <template v-if="task.isFolder && task.totalCount"> (共 {{ task.totalCount }} 个文件)</template>
               <span v-if="task.error" class="error-text">: {{ task.error }}</span>
             </div>
           </template>
@@ -99,7 +102,7 @@
             {{ formatSize(task.downloadedSize) }} / {{ formatSize(task.totalSize) }}
           </template>
           <template v-else>
-            {{ task.file.isdir === 1 ? '--' : formatSize(task.file.size) }}
+            {{ task.isFolder ? '--' : formatSize(task.file.size) }}
           </template>
         </div>
         <div class="task-actions" v-if="hoverTaskId === task.id">
@@ -164,7 +167,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useDownloadStore } from '@/stores/download'
 import { useDownloadManager } from '@/composables/useDownloadManager'
-import type { TaskStatus } from '@/types'
+import type { TaskStatus, DownloadTask } from '@/types'
 
 const downloadStore = useDownloadStore()
 const downloadManager = useDownloadManager()
@@ -192,6 +195,12 @@ function getStatusText(status: TaskStatus): string {
     error: '异常'
   }
   return statusMap[status] || status
+}
+
+// 获取文件夹任务剩余文件数
+function getRemainingCount(task: DownloadTask): number {
+  if (!task.isFolder || !task.subFiles) return 0
+  return task.subFiles.filter(sf => sf.status !== 'completed' && sf.status !== 'error').length
 }
 
 function formatSize(bytes: number): string {

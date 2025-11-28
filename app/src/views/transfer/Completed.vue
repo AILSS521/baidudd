@@ -49,14 +49,18 @@
           <div class="task-status" :class="task.status">
             <template v-if="task.status === 'completed'">
               {{ formatTime(task.completedAt) }}
+              <template v-if="task.isFolder && task.totalCount"> · 共 {{ task.totalCount }} 个文件</template>
             </template>
             <template v-else>
               {{ task.error || '下载失败' }}
+              <template v-if="task.isFolder && task.completedCount !== undefined && task.totalCount">
+                · 已完成 {{ task.completedCount }}/{{ task.totalCount }} 个文件
+              </template>
             </template>
           </div>
         </div>
         <div class="task-size" v-if="hoverTaskId !== task.id">
-          {{ task.file.isdir === 1 ? '--' : formatSize(task.file.size) }}
+          {{ task.isFolder ? '--' : formatSize(task.file.size) }}
         </div>
         <div class="task-actions" v-else>
           <button

@@ -288,7 +288,7 @@ function downloadSingle(file: FileItem) {
   router.push('/transfer/downloading')
 }
 
-// 下载文件夹（保留文件夹本身）
+// 下载文件夹（作为整体任务）
 async function downloadFolder(folder: FileItem) {
   // 获取文件夹内所有文件（递归）
   try {
@@ -299,7 +299,8 @@ async function downloadFolder(folder: FileItem) {
       // 例如：点击下载 /网盘/A 文件夹，basePath 设为 /网盘
       // 文件 /网盘/A/B/1.txt 的相对路径就是 A/B/1.txt
       const folderParentPath = folder.path.substring(0, folder.path.lastIndexOf('/')) || '/'
-      downloadStore.addToDownload(allFiles, folderParentPath)
+      // 添加文件夹任务（作为整体显示）
+      downloadStore.addFolderToDownload(folder, allFiles, folderParentPath)
       router.push('/transfer/downloading')
     } else {
       errorMessage.value = '文件夹内没有可下载的文件'
