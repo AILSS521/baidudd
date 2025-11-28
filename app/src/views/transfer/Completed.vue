@@ -29,7 +29,7 @@
         @mouseenter="hoverTaskId = task.id"
         @mouseleave="hoverTaskId = null"
       >
-        <div class="task-checkbox">
+        <div class="task-checkbox" :class="{ checked: selectedIds.has(task.id) }">
           <input
             type="checkbox"
             :checked="selectedIds.has(task.id)"
@@ -389,11 +389,22 @@ function getTaskPath(task: DownloadTask): string | null {
 
   &:hover {
     background: $bg-hover;
+
+    .task-checkbox {
+      opacity: 1;
+    }
   }
 }
 
 .task-checkbox {
   flex-shrink: 0;
+  opacity: 0;
+  transition: opacity 0.15s;
+
+  &.checked {
+    opacity: 1;
+  }
+
   input[type="checkbox"] {
     width: 16px;
     height: 16px;

@@ -44,7 +44,7 @@
         @mouseleave="hoverTaskId = null"
       >
         <!-- 勾选框 -->
-        <div class="checkbox" @click.stop="toggleSelect(task.id)">
+        <div class="checkbox" :class="{ visible: selectedIds.has(task.id) }" @click.stop="toggleSelect(task.id)">
           <div class="checkbox-inner" :class="{ checked: selectedIds.has(task.id) }">
             <svg v-if="selectedIds.has(task.id)" viewBox="0 0 24 24" width="14" height="14">
               <path fill="currentColor" d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>
@@ -324,11 +324,21 @@ function clearAll() {
 
   &:hover {
     background: $bg-hover;
+
+    .checkbox {
+      opacity: 1;
+    }
   }
 }
 
 .checkbox {
   cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s;
+
+  &.visible {
+    opacity: 1;
+  }
 }
 
 .checkbox-inner {
