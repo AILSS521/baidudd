@@ -48,13 +48,53 @@
               @change="toggleSelectAll"
             />
           </div>
-          <div class="col-name">文件名</div>
-          <div class="col-size">大小</div>
-          <div class="col-time">修改时间</div>
+          <div
+            class="col-name sortable"
+            :style="{ width: columnWidths.name + 'px' }"
+            @click="toggleSort('name')"
+          >
+            <span>文件名</span>
+            <span class="sort-icon" v-if="sortKey === 'name'">
+              {{ sortOrder === 'asc' ? '↑' : '↓' }}
+            </span>
+            <div class="resize-handle" @mousedown.stop="startResize($event, 'name')"></div>
+          </div>
+          <div
+            class="col-size sortable"
+            :style="{ width: columnWidths.size + 'px' }"
+            @click="toggleSort('size')"
+          >
+            <span>大小</span>
+            <span class="sort-icon" v-if="sortKey === 'size'">
+              {{ sortOrder === 'asc' ? '↑' : '↓' }}
+            </span>
+            <div class="resize-handle" @mousedown.stop="startResize($event, 'size')"></div>
+          </div>
+          <div
+            class="col-type sortable"
+            :style="{ width: columnWidths.type + 'px' }"
+            @click="toggleSort('type')"
+          >
+            <span>类型</span>
+            <span class="sort-icon" v-if="sortKey === 'type'">
+              {{ sortOrder === 'asc' ? '↑' : '↓' }}
+            </span>
+            <div class="resize-handle" @mousedown.stop="startResize($event, 'type')"></div>
+          </div>
+          <div
+            class="col-time sortable"
+            :style="{ width: columnWidths.time + 'px' }"
+            @click="toggleSort('time')"
+          >
+            <span>修改时间</span>
+            <span class="sort-icon" v-if="sortKey === 'time'">
+              {{ sortOrder === 'asc' ? '↑' : '↓' }}
+            </span>
+          </div>
         </div>
         <div class="table-body">
           <div
-            v-for="file in fileList"
+            v-for="file in sortedFileList"
             :key="file.fs_id"
             class="table-row"
             :class="{ selected: selectedIds.has(file.fs_id) }"
@@ -68,7 +108,7 @@
                 @change="toggleSelect(file)"
               />
             </div>
-            <div class="col-name">
+            <div class="col-name" :style="{ width: columnWidths.name + 'px' }">
               <div class="file-icon">
                 <FileIcon :filename="file.server_filename" :is-folder="file.isdir === 1" />
               </div>
@@ -101,8 +141,15 @@
                 </svg>
               </button>
             </div>
-            <div class="col-size">{{ file.isdir === 1 ? '--' : formatSize(file.size) }}</div>
-            <div class="col-time">{{ formatTime(file.server_mtime) }}</div>
+            <div class="col-size" :style="{ width: columnWidths.size + 'px' }">
+              {{ file.isdir === 1 ? '--' : formatSize(file.size) }}
+            </div>
+            <div class="col-type" :style="{ width: columnWidths.type + 'px' }">
+              {{ getFileType(file) }}
+            </div>
+            <div class="col-time" :style="{ width: columnWidths.time + 'px' }">
+              {{ formatTime(file.server_mtime) }}
+            </div>
           </div>
         </div>
       </div>
@@ -148,7 +195,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, reactive, onMounted, onUnmounted } from 'vue'
 import { useApi } from '@/composables/useApi'
 import { useDownloadStore } from '@/stores/download'
 import { useDownloadManager } from '@/composables/useDownloadManager'
@@ -183,6 +230,184 @@ const loading = ref(false)
 const errorMessage = ref('')
 const hoverFileId = ref<number | string | null>(null)
 const selectedIds = ref<Set<number | string>>(new Set())
+
+// 排序状态
+const sortKey = ref<'name' | 'size' | 'type' | 'time' | null>(null)
+const sortOrder = ref<'asc' | 'desc'>('asc')
+
+// 列宽状态
+const columnWidths = reactive({
+  name: 300,
+  size: 100,
+  type: 100,
+  time: 150
+})
+
+// 列宽拖动状态
+const resizing = ref(false)
+const resizeColumn = ref<string | null>(null)
+const resizeStartX = ref(0)
+const resizeStartWidth = ref(0)
+
+// 排序后的文件列表
+const sortedFileList = computed(() => {
+  if (!sortKey.value) return fileList.value
+
+  return [...fileList.value].sort((a, b) => {
+    let comparison = 0
+
+    // 文件夹始终排在前面
+    if (a.isdir !== b.isdir) {
+      return b.isdir - a.isdir
+    }
+
+    switch (sortKey.value) {
+      case 'name':
+        comparison = a.server_filename.localeCompare(b.server_filename, 'zh-CN')
+        break
+      case 'size':
+        comparison = (a.size || 0) - (b.size || 0)
+        break
+      case 'type':
+        comparison = getFileType(a).localeCompare(getFileType(b), 'zh-CN')
+        break
+      case 'time':
+        comparison = a.server_mtime - b.server_mtime
+        break
+    }
+
+    return sortOrder.value === 'asc' ? comparison : -comparison
+  })
+})
+
+// 切换排序
+function toggleSort(key: 'name' | 'size' | 'type' | 'time') {
+  if (sortKey.value === key) {
+    if (sortOrder.value === 'asc') {
+      sortOrder.value = 'desc'
+    } else {
+      // 第三次点击取消排序
+      sortKey.value = null
+      sortOrder.value = 'asc'
+    }
+  } else {
+    sortKey.value = key
+    sortOrder.value = 'asc'
+  }
+}
+
+// 开始拖动调整列宽
+function startResize(event: MouseEvent, column: string) {
+  resizing.value = true
+  resizeColumn.value = column
+  resizeStartX.value = event.clientX
+  resizeStartWidth.value = columnWidths[column as keyof typeof columnWidths]
+
+  document.addEventListener('mousemove', handleResize)
+  document.addEventListener('mouseup', stopResize)
+  document.body.style.cursor = 'col-resize'
+  document.body.style.userSelect = 'none'
+}
+
+// 处理拖动
+function handleResize(event: MouseEvent) {
+  if (!resizing.value || !resizeColumn.value) return
+
+  const diff = event.clientX - resizeStartX.value
+  const newWidth = Math.max(60, resizeStartWidth.value + diff)
+  columnWidths[resizeColumn.value as keyof typeof columnWidths] = newWidth
+}
+
+// 停止拖动
+function stopResize() {
+  resizing.value = false
+  resizeColumn.value = null
+
+  document.removeEventListener('mousemove', handleResize)
+  document.removeEventListener('mouseup', stopResize)
+  document.body.style.cursor = ''
+  document.body.style.userSelect = ''
+}
+
+// 获取文件类型
+function getFileType(file: FileItem): string {
+  if (file.isdir === 1) return '文件夹'
+
+  const ext = file.server_filename.split('.').pop()?.toLowerCase() || ''
+
+  const typeMap: Record<string, string> = {
+    // 文档
+    'doc': 'Word文档',
+    'docx': 'Word文档',
+    'xls': 'Excel文件',
+    'xlsx': 'Excel文件',
+    'ppt': 'PPT文件',
+    'pptx': 'PPT文件',
+    'pdf': 'PDF文件',
+    'txt': '文本文件',
+    'md': 'Markdown',
+    // 图片
+    'jpg': '图片文件',
+    'jpeg': '图片文件',
+    'png': '图片文件',
+    'gif': '图片文件',
+    'bmp': '图片文件',
+    'webp': '图片文件',
+    'svg': 'SVG图片',
+    'ico': '图标文件',
+    'psd': 'PSD文件',
+    // 视频
+    'mp4': '视频文件',
+    'avi': '视频文件',
+    'mkv': '视频文件',
+    'mov': '视频文件',
+    'wmv': '视频文件',
+    'flv': '视频文件',
+    'webm': '视频文件',
+    // 音频
+    'mp3': '音频文件',
+    'wav': '音频文件',
+    'flac': '音频文件',
+    'aac': '音频文件',
+    'ogg': '音频文件',
+    'wma': '音频文件',
+    // 压缩包
+    'zip': 'ZIP压缩包',
+    'rar': 'RAR压缩包',
+    '7z': '7z压缩包',
+    'tar': 'TAR压缩包',
+    'gz': 'GZ压缩包',
+    // 程序
+    'exe': 'exe文件',
+    'msi': '安装程序',
+    'dmg': 'DMG镜像',
+    'apk': 'APK安装包',
+    'app': '应用程序',
+    // 代码
+    'js': 'JavaScript',
+    'ts': 'TypeScript',
+    'vue': 'Vue组件',
+    'jsx': 'React组件',
+    'tsx': 'React组件',
+    'html': 'HTML文件',
+    'css': 'CSS文件',
+    'scss': 'SCSS文件',
+    'json': 'JSON文件',
+    'xml': 'XML文件',
+    'py': 'Python文件',
+    'java': 'Java文件',
+    'c': 'C文件',
+    'cpp': 'C++文件',
+    'h': '头文件',
+    'php': 'PHP文件',
+    'sql': 'SQL文件',
+    // 其他
+    'iso': '光盘镜像',
+    'torrent': '种子文件'
+  }
+
+  return typeMap[ext] || (ext ? ext.toUpperCase() + '文件' : '未知类型')
+}
 
 // 获取相对于基础路径的显示路径
 function getRelativePath(fullPath: string): string {
@@ -423,8 +648,14 @@ function formatSize(bytes: number): string {
 
 // 格式化时间
 function formatTime(timestamp: number): string {
-  return dayjs(timestamp * 1000).format('YYYY-MM-DD HH:mm')
+  return dayjs(timestamp * 1000).format('YYYY.MM.DD HH:mm')
 }
+
+// 组件卸载时清理事件监听
+onUnmounted(() => {
+  document.removeEventListener('mousemove', handleResize)
+  document.removeEventListener('mouseup', stopResize)
+})
 </script>
 
 <style lang="scss" scoped>
@@ -499,6 +730,37 @@ function formatTime(timestamp: number): string {
   position: sticky;
   top: 0;
   z-index: 1;
+  user-select: none;
+}
+
+.sortable {
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  position: relative;
+
+  &:hover {
+    color: $primary-color;
+  }
+
+  .sort-icon {
+    margin-left: 4px;
+    font-size: 12px;
+    color: $primary-color;
+  }
+}
+
+.resize-handle {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  cursor: col-resize;
+
+  &:hover {
+    background: rgba($primary-color, 0.3);
+  }
 }
 
 .table-row {
@@ -541,10 +803,11 @@ function formatTime(timestamp: number): string {
 
 .col-name {
   flex: 1;
+  min-width: 150px;
   display: flex;
   align-items: center;
   gap: 8px;
-  min-width: 0;
+  overflow: hidden;
 }
 
 .file-icon {
@@ -585,15 +848,22 @@ function formatTime(timestamp: number): string {
 }
 
 .col-size {
-  width: 100px;
   flex-shrink: 0;
   text-align: right;
   color: $text-secondary;
   font-size: 13px;
+  padding-right: 8px;
+}
+
+.col-type {
+  flex-shrink: 0;
+  text-align: left;
+  color: $text-secondary;
+  font-size: 13px;
+  padding-right: 8px;
 }
 
 .col-time {
-  width: 140px;
   flex-shrink: 0;
   text-align: right;
   color: $text-secondary;
