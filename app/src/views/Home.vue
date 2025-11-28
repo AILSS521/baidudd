@@ -1,7 +1,25 @@
 <template>
   <div class="home-page">
+    <!-- 加载中 -->
+    <div class="loading-state" v-if="loading">
+      <div class="loading-content">
+        <div class="loading-icon">
+          <svg class="cloud-icon" viewBox="0 0 24 24" width="64" height="64">
+            <path fill="#1a73e8" d="M19.35 10.04A7.49 7.49 0 0 0 12 4C9.11 4 6.6 5.64 5.35 8.04A5.994 5.994 0 0 0 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96z" />
+          </svg>
+          <div class="loading-dots">
+            <span></span>
+            <span></span>
+            <span></span>
+          </div>
+        </div>
+        <p class="loading-text">正在获取文件列表</p>
+        <p class="loading-hint">请稍候...</p>
+      </div>
+    </div>
+
     <!-- 文件列表区域 -->
-    <div class="file-list-area" v-if="fileList.length > 0">
+    <div class="file-list-area" v-else-if="fileList.length > 0">
       <!-- 头部信息 -->
       <div class="list-header">
         <div class="breadcrumb">
@@ -95,17 +113,11 @@
     </div>
 
     <!-- 空状态 -->
-    <div class="empty-state" v-else-if="!loading">
+    <div class="empty-state" v-else>
       <svg viewBox="0 0 24 24" width="64" height="64">
-        <path fill="#5f6368" d="M19.35 10.04A7.49 7.49 0 0 0 12 4C9.11 4 6.6 5.64 5.35 8.04A5.994 5.994 0 0 0 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM14 13v4h-4v-4H7l5-5 5 5h-3z" />
+        <path fill="#9aa0a6" d="M19.35 10.04A7.49 7.49 0 0 0 12 4C9.11 4 6.6 5.64 5.35 8.04A5.994 5.994 0 0 0 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM14 13v4h-4v-4H7l5-5 5 5h-3z" />
       </svg>
       <p>输入下载编码获取文件列表</p>
-    </div>
-
-    <!-- 加载中 -->
-    <div class="loading-state" v-if="loading">
-      <div class="spinner"></div>
-      <p>正在获取文件列表...</p>
     </div>
 
     <!-- 底部操作栏 -->
@@ -569,8 +581,7 @@ function formatTime(timestamp: number): string {
   font-size: 13px;
 }
 
-.empty-state,
-.loading-state {
+.empty-state {
   flex: 1;
   display: flex;
   flex-direction: column;
@@ -580,18 +591,86 @@ function formatTime(timestamp: number): string {
   color: $text-secondary;
 }
 
-.spinner {
-  width: 40px;
-  height: 40px;
-  border: 3px solid $border-color;
-  border-top-color: $primary-color;
-  border-radius: 50%;
-  animation: spin 1s linear infinite;
+.loading-state {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: $bg-primary;
 }
 
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
+.loading-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+
+.loading-icon {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+
+  .cloud-icon {
+    animation: cloudFloat 2s ease-in-out infinite;
+  }
+}
+
+.loading-dots {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+
+  span {
+    width: 8px;
+    height: 8px;
+    background: $primary-color;
+    border-radius: 50%;
+    animation: dotBounce 1.4s ease-in-out infinite;
+
+    &:nth-child(1) {
+      animation-delay: 0s;
+    }
+    &:nth-child(2) {
+      animation-delay: 0.2s;
+    }
+    &:nth-child(3) {
+      animation-delay: 0.4s;
+    }
+  }
+}
+
+.loading-text {
+  font-size: 16px;
+  font-weight: 500;
+  color: $text-primary;
+  margin: 0;
+}
+
+.loading-hint {
+  font-size: 13px;
+  color: $text-muted;
+  margin: 0;
+}
+
+@keyframes cloudFloat {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-8px);
+  }
+}
+
+@keyframes dotBounce {
+  0%, 80%, 100% {
+    transform: scale(0.6);
+    opacity: 0.5;
+  }
+  40% {
+    transform: scale(1);
+    opacity: 1;
   }
 }
 
