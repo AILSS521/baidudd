@@ -337,32 +337,48 @@ function handleResize(event: MouseEvent) {
   // 将像素差转换为百分比差
   const diffPercent = (diff / tableWidth.value) * 100
 
-  // 定义列的顺序
+  // 定义列的顺序和对应的最小像素宽度
   const columns = ['name', 'size', 'type', 'time'] as const
-  const currentIndex = columns.indexOf(resizeColumn.value as typeof columns[number])
+  const minWidthsPx: Record<typeof columns[number], number> = {
+    name: 100,
+    size: 60,
+    type: 60,
+    time: 80
+  }
 
-  // 计算新的列宽百分比，确保最小5%
-  const newWidth = Math.max(5, Math.min(80, resizeStartWidth.value + diffPercent))
-  const widthDiff = newWidth - columnWidths[resizeColumn.value as keyof typeof columnWidths]
+  // 根据容器宽度动态计算最小百分比
+  const getMinPercent = (column: typeof columns[number]) => {
+    return (minWidthsPx[column] / tableWidth.value) * 100
+  }
+
+  const currentIndex = columns.indexOf(resizeColumn.value as typeof columns[number])
+  const currentColumn = resizeColumn.value as typeof columns[number]
+  const currentMinPercent = getMinPercent(currentColumn)
+
+  // 计算新的列宽百分比，确保不小于最小百分比
+  const newWidth = Math.max(currentMinPercent, Math.min(80, resizeStartWidth.value + diffPercent))
+  const widthDiff = newWidth - columnWidths[currentColumn]
 
   // 如果有下一列，从下一列扣除相同的宽度
   if (currentIndex < columns.length - 1) {
     const nextColumn = columns[currentIndex + 1]
+    const nextMinPercent = getMinPercent(nextColumn)
     const nextWidth = columnWidths[nextColumn] - widthDiff
 
-    // 确保下一列也不会小于5%
-    if (nextWidth >= 5) {
-      columnWidths[resizeColumn.value as keyof typeof columnWidths] = newWidth
+    // 确保下一列也不会小于其最小百分比
+    if (nextWidth >= nextMinPercent) {
+      columnWidths[currentColumn] = newWidth
       columnWidths[nextColumn] = nextWidth
     }
   } else {
     // 最后一列，从前一列调整
     if (currentIndex > 0) {
       const prevColumn = columns[currentIndex - 1]
+      const prevMinPercent = getMinPercent(prevColumn)
       const prevWidth = columnWidths[prevColumn] - widthDiff
 
-      if (prevWidth >= 5) {
-        columnWidths[resizeColumn.value as keyof typeof columnWidths] = newWidth
+      if (prevWidth >= prevMinPercent) {
+        columnWidths[currentColumn] = newWidth
         columnWidths[prevColumn] = prevWidth
       }
     }
