@@ -284,6 +284,94 @@ export const useDownloadStore = defineStore('download', () => {
     return downloadTasks.value.find(t => t.status === 'waiting')
   }
 
+  // 从已完成列表中重新下载任务
+  function retryFromCompleted(taskId: string) {
+    const taskIndex = completedTasks.value.findIndex(t => t.id === taskId)
+    if (taskIndex === -1) return
+
+    const task = completedTasks.value[taskIndex]
+    // 从已完成列表移除
+    completedTasks.value.splice(taskIndex, 1)
+
+    // 重置任务状态
+    task.status = 'waiting'
+    task.error = undefined
+    task.retryCount = 0
+    task.progress = 0
+    task.speed = 0
+    task.downloadedSize = 0
+    task.completedAt = undefined
+    task.downloadUrl = undefined
+    task.ua = undefined
+
+    // 如果是文件夹，重置所有子文件状态
+    if (task.isFolder && task.subFiles) {
+      task.subFiles.forEach(sf => {
+        sf.status = 'waiting'
+        sf.error = undefined
+        sf.retryCount = 0
+        sf.progress = 0
+        sf.speed = 0
+        sf.downloadedSize = 0
+        sf.downloadUrl = undefined
+        sf.ua = undefined
+      })
+      task.completedCount = 0
+    }
+
+    // 添加到下载列表
+    downloadTasks.value.push(task)
+  }
+
+  // 重试文件夹中失败的文件
+  function retryFailedSubFiles(taskId: string) {
+    const taskIndex = completedTasks.value.findIndex(t => t.id === taskId)
+    if (taskIndex === -1) return
+
+    const task = completedTasks.value[taskIndex]
+    if (!task.isFolder || !task.subFiles) return
+
+    // 检查是否有失败的文件
+    const hasFailedFiles = task.subFiles.some(sf => sf.status === 'error')
+    if (!hasFailedFiles) return
+
+    // 从已完成列表移除
+    completedTasks.value.splice(taskIndex, 1)
+
+    // 重置任务状态
+    task.status = 'waiting'
+    task.error = undefined
+
+    // 只重置失败的子文件
+    task.subFiles.forEach(sf => {
+      if (sf.status === 'error') {
+        sf.status = 'waiting'
+        sf.error = undefined
+        sf.retryCount = 0
+        sf.progress = 0
+        sf.speed = 0
+        sf.downloadedSize = 0
+        sf.downloadUrl = undefined
+        sf.ua = undefined
+      }
+    })
+
+    // 重新计算进度
+    task.completedCount = task.subFiles.filter(sf => sf.status === 'completed').length
+    task.downloadedSize = task.subFiles.reduce((sum, sf) => sum + sf.downloadedSize, 0)
+    task.progress = task.totalSize > 0 ? (task.downloadedSize / task.totalSize) * 100 : 0
+
+    // 添加到下载列表
+    downloadTasks.value.push(task)
+  }
+
+  // 获取文件夹中失败的文件列表
+  function getFailedSubFiles(taskId: string): SubFileTask[] {
+    const task = completedTasks.value.find(t => t.id === taskId)
+    if (!task || !task.isFolder || !task.subFiles) return []
+    return task.subFiles.filter(sf => sf.status === 'error')
+  }
+
   return {
     // 状态
     downloadTasks,
@@ -319,6 +407,9 @@ export const useDownloadStore = defineStore('download', () => {
     resumeAll,
     clearCompleted,
     removeCompleted,
-    getNextWaitingTask
+    getNextWaitingTask,
+    retryFromCompleted,
+    retryFailedSubFiles,
+    getFailedSubFiles
   }
 })
