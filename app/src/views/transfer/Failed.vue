@@ -2,7 +2,7 @@
   <div class="failed-page">
     <!-- 顶部操作栏 -->
     <div class="action-bar">
-      <template v-if="selectedIds.size > 0">
+      <div class="action-group" v-if="selectedIds.size > 0">
         <button class="action-btn" @click="retrySelected">
           <svg viewBox="0 0 24 24" width="16" height="16">
             <path fill="currentColor" d="M17.65 6.35A7.958 7.958 0 0012 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08A5.99 5.99 0 0112 18c-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/>
@@ -16,8 +16,8 @@
           </svg>
           删除选中
         </button>
-      </template>
-      <template v-else>
+      </div>
+      <div class="action-group" v-else>
         <button class="action-btn" @click="retryAll" :disabled="tasks.length === 0">
           <svg viewBox="0 0 24 24" width="16" height="16">
             <path fill="currentColor" d="M17.65 6.35A7.958 7.958 0 0012 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08A5.99 5.99 0 0112 18c-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/>
@@ -31,7 +31,7 @@
           </svg>
           清空全部
         </button>
-      </template>
+      </div>
     </div>
 
     <!-- 任务列表 -->
@@ -270,24 +270,29 @@ function clearAll() {
 .action-bar {
   display: flex;
   align-items: center;
-  gap: 4px;
   margin-bottom: 16px;
+}
+
+.action-group {
+  display: flex;
+  align-items: center;
+  border: 1px solid $border-color;
+  border-radius: 6px;
+  overflow: hidden;
 }
 
 .action-divider {
   width: 1px;
-  height: 14px;
+  height: 20px;
   background: $border-color;
-  margin: 0 4px;
 }
 
 .action-btn {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 8px;
+  padding: 6px 12px;
   border: none;
-  border-radius: 4px;
   background: transparent;
   color: $primary-color;
   cursor: pointer;

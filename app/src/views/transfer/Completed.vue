@@ -2,22 +2,22 @@
   <div class="completed-page">
     <!-- 顶部操作栏 -->
     <div class="action-bar">
-      <template v-if="selectedIds.size > 0">
+      <div class="action-group" v-if="selectedIds.size > 0">
         <button class="action-btn" @click="clearSelected">
           <svg viewBox="0 0 24 24" width="16" height="16">
             <path fill="currentColor" d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/>
           </svg>
           清除记录
         </button>
-      </template>
-      <template v-else>
+      </div>
+      <div class="action-group" v-else>
         <button class="action-btn" @click="clearAll">
           <svg viewBox="0 0 24 24" width="16" height="16">
             <path fill="currentColor" d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/>
           </svg>
           清空全部记录
         </button>
-      </template>
+      </div>
     </div>
 
     <!-- 任务列表 -->
@@ -344,18 +344,24 @@ function getTaskPath(task: DownloadTask): string | null {
 .action-bar {
   display: flex;
   align-items: center;
-  gap: 4px;
   padding: 12px 16px;
   border-bottom: 1px solid $border-color;
+}
+
+.action-group {
+  display: flex;
+  align-items: center;
+  border: 1px solid $border-color;
+  border-radius: 6px;
+  overflow: hidden;
 }
 
 .action-btn {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 8px;
+  padding: 6px 12px;
   border: none;
-  border-radius: 4px;
   background: transparent;
   color: $primary-color;
   font-size: 13px;

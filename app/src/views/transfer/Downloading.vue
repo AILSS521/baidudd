@@ -2,7 +2,7 @@
   <div class="downloading-page">
     <!-- 顶部操作栏 -->
     <div class="action-bar">
-      <template v-if="selectedIds.size > 0">
+      <div class="action-group" v-if="selectedIds.size > 0">
         <button class="action-btn" @click="pauseSelected">
           <svg viewBox="0 0 24 24" width="16" height="16">
             <path fill="currentColor" d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>
@@ -23,8 +23,8 @@
           </svg>
           删除
         </button>
-      </template>
-      <template v-else>
+      </div>
+      <div class="action-group" v-else>
         <button class="action-btn" @click="pauseAll">
           <svg viewBox="0 0 24 24" width="16" height="16">
             <path fill="currentColor" d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>
@@ -45,7 +45,7 @@
           </svg>
           全部删除
         </button>
-      </template>
+      </div>
     </div>
 
     <!-- 任务列表 -->
@@ -309,25 +309,30 @@ onMounted(() => {
 .action-bar {
   display: flex;
   align-items: center;
-  gap: 4px;
   padding: 12px 16px;
   border-bottom: 1px solid $border-color;
 }
 
+.action-group {
+  display: flex;
+  align-items: center;
+  border: 1px solid $border-color;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
 .action-divider {
   width: 1px;
-  height: 14px;
+  height: 20px;
   background: $border-color;
-  margin: 0 4px;
 }
 
 .action-btn {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 8px;
+  padding: 6px 12px;
   border: none;
-  border-radius: 4px;
   background: transparent;
   color: $primary-color;
   font-size: 13px;
