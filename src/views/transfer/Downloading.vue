@@ -480,7 +480,7 @@ onMounted(() => {
 .task-actions {
   display: flex;
   gap: 4px;
-  justify-content: flex-end;
+  justify-content: flex-start;
 }
 
 .icon-btn {
