@@ -41,8 +41,10 @@ export function useDownloadManager() {
         } else if (progress.status === 'completed') {
           downloadStore.markFolderSubFileCompleted(folderInfo.taskId, folderInfo.fileIndex, true)
           folderDownloadMap.value.delete(progress.taskId)
-          // 串行下载：完成后继续下载下一个文件
-          processFolderNextFile(task)
+          // 串行下载：完成后继续下载下一个文件（但要检查任务是否被暂停）
+          if (task.status !== 'paused' && task.status !== 'error') {
+            processFolderNextFile(task)
+          }
         } else if (progress.status === 'error') {
           folderDownloadMap.value.delete(progress.taskId)
           // 标记子文件失败，整个文件夹停止
@@ -251,6 +253,12 @@ export function useDownloadManager() {
     downloadStore.updateFolderSubFileStatus(task.id, index, 'processing')
 
     try {
+      // 再次检查任务状态（异步操作前）
+      const taskBeforeApi = downloadStore.downloadTasks.find(t => t.id === task.id)
+      if (!taskBeforeApi || taskBeforeApi.status === 'paused' || taskBeforeApi.status === 'error') {
+        return
+      }
+
       // 获取下载链接
       const linkData = await api.getDownloadLink({
         code: downloadStore.currentCode,
@@ -266,9 +274,15 @@ export function useDownloadManager() {
       subFile.downloadUrl = linkData.url
       subFile.ua = linkData.ua
 
+      // 获取链接后再次检查任务状态
+      const taskAfterApi = downloadStore.downloadTasks.find(t => t.id === task.id)
+      if (!taskAfterApi || taskAfterApi.status === 'paused' || taskAfterApi.status === 'error') {
+        return
+      }
+
       // 更新状态
       downloadStore.updateFolderSubFileStatus(task.id, index, 'creating')
-      if (task.status !== 'downloading') {
+      if (taskAfterApi.status !== 'downloading') {
         downloadStore.updateTaskStatus(task.id, 'downloading')
       }
 

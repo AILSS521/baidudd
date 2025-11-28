@@ -98,18 +98,18 @@
           </button>
           <!-- 打开文件位置（成功任务显示） -->
           <button
-            v-if="task.status === 'completed' && task.localPath"
+            v-if="task.status === 'completed' && getTaskPath(task)"
             class="icon-btn"
-            @click="showInFolder(task.localPath)"
+            @click="showInFolder(getTaskPath(task)!)"
             title="打开文件位置"
           >
             <svg viewBox="0 0 24 24" width="18" height="18">
               <path fill="currentColor" d="M20 6h-8l-2-2H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm0 12H4V8h16v10z"/>
             </svg>
           </button>
-          <!-- 打开文件（成功任务显示） -->
+          <!-- 打开文件（成功任务且非文件夹显示） -->
           <button
-            v-if="task.status === 'completed' && task.localPath"
+            v-if="task.status === 'completed' && task.localPath && !task.isFolder"
             class="icon-btn"
             @click="openFile(task.localPath)"
             title="打开文件"
@@ -277,6 +277,31 @@ function retryFailedFromModal() {
     closeFailedModal()
     router.push('/transfer/downloading')
   }
+}
+
+// 获取任务的本地路径（文件夹任务从子文件中获取）
+function getTaskPath(task: DownloadTask): string | null {
+  // 普通文件直接返回 localPath
+  if (!task.isFolder) {
+    return task.localPath || null
+  }
+
+  // 文件夹任务：从已完成的子文件中获取路径
+  if (task.subFiles && task.subFiles.length > 0) {
+    // 找到第一个有 localPath 的已完成子文件
+    const completedSubFile = task.subFiles.find(sf => sf.status === 'completed' && sf.localPath)
+    if (completedSubFile?.localPath) {
+      return completedSubFile.localPath
+    }
+    // 如果没有已完成的，尝试找任意有 localPath 的子文件
+    const anySubFile = task.subFiles.find(sf => sf.localPath)
+    if (anySubFile?.localPath) {
+      return anySubFile.localPath
+    }
+  }
+
+  // 如果文件夹本身有 localPath，返回它
+  return task.localPath || null
 }
 </script>
 
