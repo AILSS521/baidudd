@@ -309,7 +309,7 @@ function startResize(event: MouseEvent, column: string) {
   document.body.style.userSelect = 'none'
 }
 
-// 处理拖动
+// 处理拖动 - 只调整当前列宽度，其他列不变
 function handleResize(event: MouseEvent) {
   if (!resizing.value || !resizeColumn.value) return
 
@@ -717,6 +717,12 @@ onUnmounted(() => {
 .file-table {
   flex: 1;
   overflow: auto;
+
+  // 内容区域允许超出并显示滚动条
+  .table-header,
+  .table-body {
+    min-width: max-content;
+  }
 }
 
 .table-header {
@@ -819,7 +825,7 @@ onUnmounted(() => {
 }
 
 .col-name {
-  flex: 1;
+  flex-shrink: 0;
   min-width: 150px;
   display: flex;
   align-items: center;
