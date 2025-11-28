@@ -65,12 +65,7 @@
           />
         </div>
         <div class="task-icon">
-          <svg v-if="task.file.isdir === 1" viewBox="0 0 24 24" width="24" height="24">
-            <path fill="#ffc107" d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/>
-          </svg>
-          <svg v-else viewBox="0 0 24 24" width="24" height="24">
-            <path fill="#90caf9" d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/>
-          </svg>
+          <FileIcon :filename="task.file.server_filename" :is-folder="task.file.isdir === 1" />
         </div>
         <div class="task-info">
           <div class="task-name" :title="task.file.server_filename">{{ task.file.server_filename }}</div>
@@ -175,6 +170,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useDownloadStore } from '@/stores/download'
 import { useDownloadManager } from '@/composables/useDownloadManager'
+import FileIcon from '@/components/FileIcon.vue'
 import type { TaskStatus, DownloadTask } from '@/types'
 
 const downloadStore = useDownloadStore()
