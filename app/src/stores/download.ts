@@ -229,8 +229,17 @@ export const useDownloadStore = defineStore('download', () => {
   function pauseTask(taskId: string) {
     const task = downloadTasks.value.find(t => t.id === taskId)
     if (task && (task.status === 'downloading' || task.status === 'waiting' || task.status === 'processing' || task.status === 'creating')) {
-      // 只有正在下载的任务需要调用 electron API
-      if (task.status === 'downloading') {
+      // 对于文件夹任务，需要暂停当前正在下载的子文件
+      if (task.isFolder && task.subFiles && task.currentFileIndex !== undefined) {
+        const subFileDownloadId = `${task.id}-sub-${task.currentFileIndex}`
+        window.electronAPI?.pauseDownload(subFileDownloadId)
+        // 标记当前子文件为暂停
+        const subFile = task.subFiles[task.currentFileIndex]
+        if (subFile && (subFile.status === 'downloading' || subFile.status === 'processing' || subFile.status === 'creating')) {
+          subFile.status = 'paused'
+        }
+      } else if (task.status === 'downloading') {
+        // 普通文件任务
         window.electronAPI?.pauseDownload(taskId)
       }
       task.status = 'paused'
@@ -241,8 +250,27 @@ export const useDownloadStore = defineStore('download', () => {
   function resumeTask(taskId: string) {
     const task = downloadTasks.value.find(t => t.id === taskId)
     if (task && task.status === 'paused') {
-      // 如果任务已经开始下载过，调用恢复API
-      if (task.downloadUrl) {
+      if (task.isFolder && task.subFiles) {
+        // 文件夹任务：检查当前子文件是否有下载URL
+        const currentSubFile = task.currentFileIndex !== undefined ? task.subFiles[task.currentFileIndex] : null
+        if (currentSubFile && currentSubFile.downloadUrl && currentSubFile.status === 'paused') {
+          // 恢复当前子文件的下载
+          const subFileDownloadId = `${task.id}-sub-${task.currentFileIndex}`
+          task.status = 'downloading'
+          currentSubFile.status = 'downloading'
+          window.electronAPI?.resumeDownload(subFileDownloadId)
+        } else {
+          // 还没开始下载或需要重新开始，改为等待状态
+          task.status = 'waiting'
+          // 恢复暂停的子文件为等待状态
+          task.subFiles.forEach(sf => {
+            if (sf.status === 'paused') {
+              sf.status = 'waiting'
+            }
+          })
+        }
+      } else if (task.downloadUrl) {
+        // 普通文件任务：如果已经开始下载过，调用恢复API
         task.status = 'downloading'
         window.electronAPI?.resumeDownload(taskId)
       } else {
@@ -255,10 +283,18 @@ export const useDownloadStore = defineStore('download', () => {
   // 暂停所有任务
   function pauseAll() {
     downloadTasks.value.forEach(task => {
-      if (task.status === 'downloading') {
-        window.electronAPI?.pauseDownload(task.id)
-      }
-      if (task.status === 'downloading' || task.status === 'waiting' || task.status === 'processing') {
+      if (task.status === 'downloading' || task.status === 'waiting' || task.status === 'processing' || task.status === 'creating') {
+        // 对于文件夹任务，需要暂停当前正在下载的子文件
+        if (task.isFolder && task.subFiles && task.currentFileIndex !== undefined) {
+          const subFileDownloadId = `${task.id}-sub-${task.currentFileIndex}`
+          window.electronAPI?.pauseDownload(subFileDownloadId)
+          const subFile = task.subFiles[task.currentFileIndex]
+          if (subFile && (subFile.status === 'downloading' || subFile.status === 'processing' || subFile.status === 'creating')) {
+            subFile.status = 'paused'
+          }
+        } else if (task.status === 'downloading') {
+          window.electronAPI?.pauseDownload(task.id)
+        }
         task.status = 'paused'
       }
     })
@@ -268,7 +304,15 @@ export const useDownloadStore = defineStore('download', () => {
   function resumeAll() {
     downloadTasks.value.forEach(task => {
       if (task.status === 'paused') {
-        if (task.downloadUrl) {
+        if (task.isFolder && task.subFiles) {
+          // 文件夹任务：改为等待状态，让 processQueue 处理
+          task.status = 'waiting'
+          task.subFiles.forEach(sf => {
+            if (sf.status === 'paused') {
+              sf.status = 'waiting'
+            }
+          })
+        } else if (task.downloadUrl) {
           task.status = 'downloading'
           window.electronAPI?.resumeDownload(task.id)
         } else {

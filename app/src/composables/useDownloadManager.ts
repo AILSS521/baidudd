@@ -208,7 +208,12 @@ export function useDownloadManager() {
 
   // 处理文件夹任务
   async function processFolderTask(task: DownloadTask) {
-    downloadStore.updateTaskStatus(task.id, 'processing')
+    // 如果文件夹已经有进度（恢复下载），保持 downloading 状态显示进度条
+    if (task.progress > 0 || (task.completedCount && task.completedCount > 0)) {
+      downloadStore.updateTaskStatus(task.id, 'downloading')
+    } else {
+      downloadStore.updateTaskStatus(task.id, 'processing')
+    }
     // 开始串行下载文件夹中的文件
     await processFolderNextFile(task)
   }
