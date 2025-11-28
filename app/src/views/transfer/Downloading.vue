@@ -25,21 +25,21 @@
         </button>
       </div>
       <div class="action-group" v-else>
-        <button class="action-btn" @click="pauseAll">
+        <button class="action-btn" @click="pauseAll" :disabled="tasks.length === 0">
           <svg viewBox="0 0 24 24" width="16" height="16">
             <path fill="currentColor" d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>
           </svg>
           全部暂停
         </button>
         <span class="action-divider"></span>
-        <button class="action-btn" @click="startAll">
+        <button class="action-btn" @click="startAll" :disabled="tasks.length === 0">
           <svg viewBox="0 0 24 24" width="16" height="16">
             <path fill="currentColor" d="M8 5v14l11-7z"/>
           </svg>
           全部开始
         </button>
         <span class="action-divider"></span>
-        <button class="action-btn" @click="deleteAll">
+        <button class="action-btn" @click="deleteAll" :disabled="tasks.length === 0">
           <svg viewBox="0 0 24 24" width="16" height="16">
             <path fill="currentColor" d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/>
           </svg>
@@ -339,8 +339,13 @@ onMounted(() => {
   cursor: pointer;
   transition: all 0.15s;
 
-  &:hover {
+  &:hover:not(:disabled) {
     background: rgba($primary-color, 0.08);
+  }
+
+  &:disabled {
+    color: $text-muted;
+    cursor: not-allowed;
   }
 }
 

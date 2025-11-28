@@ -11,7 +11,7 @@
         </button>
       </div>
       <div class="action-group" v-else>
-        <button class="action-btn" @click="clearAll">
+        <button class="action-btn" @click="clearAll" :disabled="tasks.length === 0">
           <svg viewBox="0 0 24 24" width="16" height="16">
             <path fill="currentColor" d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/>
           </svg>
@@ -368,8 +368,13 @@ function getTaskPath(task: DownloadTask): string | null {
   cursor: pointer;
   transition: all 0.15s;
 
-  &:hover {
+  &:hover:not(:disabled) {
     background: rgba($primary-color, 0.08);
+  }
+
+  &:disabled {
+    color: $text-muted;
+    cursor: not-allowed;
   }
 }
 
