@@ -166,24 +166,28 @@
     <!-- 底部悬浮操作栏 -->
     <div class="bottom-float-bar">
       <div class="float-card">
-        <input
-          v-model="code"
-          type="text"
-          inputmode="numeric"
-          placeholder="输入下载编码"
-          @input="filterNonNumeric"
-          @keyup.enter="handleFetch"
-        />
-        <button class="btn-fetch" @click="handleFetch" :disabled="loading || !code.trim()">
-          获取
-        </button>
-        <button
-          class="btn-download"
-          @click="downloadSelected"
-          :disabled="selectedIds.size === 0"
-        >
-          下载 {{ selectedIds.size > 0 ? `(${selectedIds.size})` : '' }}
-        </button>
+        <div class="input-wrapper">
+          <input
+            v-model="code"
+            type="text"
+            inputmode="numeric"
+            placeholder="输入下载编码"
+            @input="filterNonNumeric"
+            @keyup.enter="handleFetch"
+          />
+          <div class="input-buttons">
+            <button class="btn-fetch" @click="handleFetch" :disabled="loading || !code.trim()">
+              获取
+            </button>
+            <button
+              class="btn-download"
+              @click="downloadSelected"
+              :disabled="selectedIds.size === 0"
+            >
+              下载{{ selectedIds.size > 0 ? ` (${selectedIds.size})` : '' }}
+            </button>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -1009,47 +1013,59 @@ onUnmounted(() => {
 }
 
 .float-card {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 14px;
   background: $bg-secondary;
   border: 1px solid $border-color;
   border-radius: 24px;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.18);
-  pointer-events: auto; // 卡片本身可交互
+  pointer-events: auto;
+  padding: 4px;
+}
+
+.input-wrapper {
+  display: flex;
+  align-items: center;
+  background: $bg-tertiary;
+  border: 1px solid $border-color;
+  border-radius: 20px;
+  padding: 4px 4px 4px 16px;
+  transition: border-color 0.2s;
+
+  &:focus-within {
+    border-color: $primary-color;
+  }
 
   input {
-    width: 140px;
-    height: 36px;
-    padding: 0 14px;
-    border: 1px solid $border-color;
-    border-radius: 18px;
-    background: $bg-tertiary;
+    width: 120px;
+    height: 32px;
+    padding: 0;
+    border: none;
+    background: transparent;
     color: $text-primary;
     font-size: 14px;
     outline: none;
-    transition: border-color 0.2s;
-
-    &:focus {
-      border-color: $primary-color;
-    }
 
     &::placeholder {
       color: $text-muted;
     }
   }
+}
+
+.input-buttons {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 8px;
 
   button {
-    height: 36px;
-    padding: 0 16px;
+    height: 32px;
+    padding: 0 14px;
     border: none;
-    border-radius: 18px;
+    border-radius: 16px;
     font-size: 13px;
     font-weight: 500;
     cursor: pointer;
     transition: all 0.2s;
-    flex-shrink: 0;
+    white-space: nowrap;
 
     &:disabled {
       opacity: 0.5;
@@ -1058,9 +1074,8 @@ onUnmounted(() => {
   }
 
   .btn-fetch {
-    background: $bg-tertiary;
+    background: $bg-secondary;
     color: $text-primary;
-    border: 1px solid $border-color;
 
     &:hover:not(:disabled) {
       background: $bg-hover;
