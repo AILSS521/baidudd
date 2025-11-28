@@ -336,13 +336,45 @@ async function getAllFilesInFolder(folderPath: string): Promise<FileItem[]> {
   return files
 }
 
-// 下载选中的文件
-function downloadSelected() {
-  const selected = fileList.value.filter(f => selectedIds.value.has(f.fs_id) && f.isdir !== 1)
-  if (selected.length > 0) {
-    // 选中的文件，如果只有一个就不创建子目录，多个则以当前路径为基础
-    const downloadBasePath = selected.length === 1 ? null : currentPath.value
-    downloadStore.addToDownload(selected, downloadBasePath)
+// 下载选中的文件和文件夹
+async function downloadSelected() {
+  const selectedItems = fileList.value.filter(f => selectedIds.value.has(f.fs_id))
+  if (selectedItems.length === 0) return
+
+  // 分离文件和文件夹
+  const files = selectedItems.filter(f => f.isdir !== 1)
+  const folders = selectedItems.filter(f => f.isdir === 1)
+
+  // 先添加普通文件任务
+  if (files.length > 0) {
+    // 选中的文件，如果只有一个且没有文件夹就不创建子目录
+    const downloadBasePath = (files.length === 1 && folders.length === 0) ? null : currentPath.value
+    downloadStore.addToDownload(files, downloadBasePath)
+  }
+
+  // 处理文件夹（需要异步获取内部文件）
+  if (folders.length > 0) {
+    loading.value = true
+    try {
+      for (const folder of folders) {
+        const allFiles = await getAllFilesInFolder(folder.path)
+        if (allFiles.length > 0) {
+          const folderParentPath = folder.path.substring(0, folder.path.lastIndexOf('/')) || '/'
+          downloadStore.addFolderToDownload(folder, allFiles, folderParentPath)
+        }
+      }
+    } catch (error: any) {
+      errorMessage.value = error.message || '获取文件夹内容失败'
+      setTimeout(() => {
+        errorMessage.value = ''
+      }, 3000)
+    } finally {
+      loading.value = false
+    }
+  }
+
+  // 有任务添加则跳转
+  if (files.length > 0 || folders.length > 0) {
     router.push('/transfer/downloading')
   }
 }

@@ -332,17 +332,12 @@ export const useDownloadStore = defineStore('download', () => {
     downloadTasks.value.push(task)
   }
 
-  // 重试失败列表中文件夹的失败子文件
+  // 重试失败任务（统一入口，文件夹只重试失败的子文件，单文件直接重试）
   function retryFailedSubFilesFromFailed(taskId: string) {
     const taskIndex = failedTasks.value.findIndex(t => t.id === taskId)
     if (taskIndex === -1) return
 
     const task = failedTasks.value[taskIndex]
-    if (!task.isFolder || !task.subFiles) return
-
-    // 检查是否有失败的文件
-    const hasFailedFiles = task.subFiles.some(sf => sf.status === 'error')
-    if (!hasFailedFiles) return
 
     // 从失败列表移除
     failedTasks.value.splice(taskIndex, 1)
@@ -350,25 +345,36 @@ export const useDownloadStore = defineStore('download', () => {
     // 重置任务状态
     task.status = 'waiting'
     task.error = undefined
+    task.retryCount = 0
 
-    // 只重置失败的子文件
-    task.subFiles.forEach(sf => {
-      if (sf.status === 'error') {
-        sf.status = 'waiting'
-        sf.error = undefined
-        sf.retryCount = 0
-        sf.progress = 0
-        sf.speed = 0
-        sf.downloadedSize = 0
-        sf.downloadUrl = undefined
-        sf.ua = undefined
-      }
-    })
+    if (task.isFolder && task.subFiles) {
+      // 文件夹任务：只重置失败和未下载的子文件，已完成的保留
+      task.subFiles.forEach(sf => {
+        if (sf.status === 'error' || sf.status === 'waiting') {
+          sf.status = 'waiting'
+          sf.error = undefined
+          sf.retryCount = 0
+          sf.progress = 0
+          sf.speed = 0
+          sf.downloadedSize = 0
+          sf.downloadUrl = undefined
+          sf.ua = undefined
+        }
+      })
 
-    // 重新计算进度
-    task.completedCount = task.subFiles.filter(sf => sf.status === 'completed').length
-    task.downloadedSize = task.subFiles.reduce((sum, sf) => sum + sf.downloadedSize, 0)
-    task.progress = task.totalSize > 0 ? (task.downloadedSize / task.totalSize) * 100 : 0
+      // 重新计算进度（保留已完成文件的进度）
+      task.completedCount = task.subFiles.filter(sf => sf.status === 'completed').length
+      task.downloadedSize = task.subFiles.reduce((sum, sf) => sum + sf.downloadedSize, 0)
+      task.progress = task.totalSize > 0 ? (task.downloadedSize / task.totalSize) * 100 : 0
+    } else {
+      // 单文件任务：直接重置
+      task.progress = 0
+      task.speed = 0
+      task.downloadedSize = 0
+      task.completedAt = undefined
+      task.downloadUrl = undefined
+      task.ua = undefined
+    }
 
     // 添加到下载列表
     downloadTasks.value.push(task)
@@ -391,7 +397,7 @@ export const useDownloadStore = defineStore('download', () => {
     failedTasks.value = []
   }
 
-  // 重试所有失败任务
+  // 重试所有失败任务（文件夹只重试未完成的子文件）
   function retryAllFailed() {
     const tasks = [...failedTasks.value]
     failedTasks.value = []
@@ -401,26 +407,34 @@ export const useDownloadStore = defineStore('download', () => {
       task.status = 'waiting'
       task.error = undefined
       task.retryCount = 0
-      task.progress = 0
-      task.speed = 0
-      task.downloadedSize = 0
-      task.completedAt = undefined
-      task.downloadUrl = undefined
-      task.ua = undefined
 
-      // 如果是文件夹，重置所有子文件状态
       if (task.isFolder && task.subFiles) {
+        // 文件夹任务：只重置失败和未下载的子文件，已完成的保留
         task.subFiles.forEach(sf => {
-          sf.status = 'waiting'
-          sf.error = undefined
-          sf.retryCount = 0
-          sf.progress = 0
-          sf.speed = 0
-          sf.downloadedSize = 0
-          sf.downloadUrl = undefined
-          sf.ua = undefined
+          if (sf.status === 'error' || sf.status === 'waiting') {
+            sf.status = 'waiting'
+            sf.error = undefined
+            sf.retryCount = 0
+            sf.progress = 0
+            sf.speed = 0
+            sf.downloadedSize = 0
+            sf.downloadUrl = undefined
+            sf.ua = undefined
+          }
         })
-        task.completedCount = 0
+
+        // 重新计算进度（保留已完成文件的进度）
+        task.completedCount = task.subFiles.filter(sf => sf.status === 'completed').length
+        task.downloadedSize = task.subFiles.reduce((sum, sf) => sum + sf.downloadedSize, 0)
+        task.progress = task.totalSize > 0 ? (task.downloadedSize / task.totalSize) * 100 : 0
+      } else {
+        // 单文件任务：直接重置
+        task.progress = 0
+        task.speed = 0
+        task.downloadedSize = 0
+        task.completedAt = undefined
+        task.downloadUrl = undefined
+        task.ua = undefined
       }
 
       // 添加到下载列表

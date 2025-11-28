@@ -75,21 +75,9 @@
         <!-- 悬浮操作按钮 -->
         <div class="hover-actions" v-show="hoverTaskId === task.id">
           <!-- 重试按钮 -->
-          <button class="icon-btn" @click.stop="retryTask(task.id)" title="重新下载">
+          <button class="icon-btn" @click.stop="retryTask(task.id)" title="重试下载">
             <svg viewBox="0 0 24 24" width="18" height="18">
               <path fill="currentColor" d="M17.65 6.35A7.958 7.958 0 0012 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08A5.99 5.99 0 0112 18c-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/>
-            </svg>
-          </button>
-
-          <!-- 文件夹：仅重试失败的文件 -->
-          <button
-            v-if="task.isFolder && hasFailedSubFiles(task)"
-            class="icon-btn"
-            @click.stop="retryFailedFiles(task.id)"
-            title="仅重试失败的文件"
-          >
-            <svg viewBox="0 0 24 24" width="18" height="18">
-              <path fill="currentColor" d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-7 14l-5-5 1.41-1.41L12 14.17l7.59-7.59L21 8l-9 9z"/>
             </svg>
           </button>
 
@@ -157,8 +145,8 @@
           </div>
         </div>
         <div class="modal-footer">
-          <button class="btn btn-primary" @click="retryCurrentFailedFiles">
-            重试这些文件
+          <button class="btn btn-primary" @click="retryCurrentTask">
+            重试下载
           </button>
           <button class="btn" @click="showFailedModal = false">
             关闭
@@ -219,11 +207,7 @@ function toggleSelect(taskId: string) {
 }
 
 function retryTask(taskId: string) {
-  downloadStore.retryFromFailed(taskId)
-  downloadManager.processQueue()
-}
-
-function retryFailedFiles(taskId: string) {
+  // 统一使用 retryFailedSubFilesFromFailed，会自动跳过已完成的文件
   downloadStore.retryFailedSubFilesFromFailed(taskId)
   downloadManager.processQueue()
 }
@@ -234,7 +218,7 @@ function showFailedFiles(task: DownloadTask) {
   showFailedModal.value = true
 }
 
-function retryCurrentFailedFiles() {
+function retryCurrentTask() {
   if (currentFailedTaskId.value) {
     downloadStore.retryFailedSubFilesFromFailed(currentFailedTaskId.value)
     downloadManager.processQueue()
