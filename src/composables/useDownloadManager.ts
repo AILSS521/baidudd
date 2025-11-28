@@ -148,6 +148,12 @@ export function useDownloadManager() {
         pwd: downloadStore.sessionData!.pwd
       })
 
+      // 获取链接后检查任务是否被暂停或已不存在
+      const currentTask = downloadStore.downloadTasks.find(t => t.id === task.id)
+      if (!currentTask || currentTask.status === 'paused' || currentTask.status === 'error') {
+        return
+      }
+
       task.downloadUrl = linkData.url
       task.ua = linkData.ua
 
@@ -173,6 +179,12 @@ export function useDownloadManager() {
       }
       const localPath = path.join(localDir, task.file.server_filename)
       task.localPath = localPath
+
+      // 开始下载前再次检查任务状态
+      const taskBeforeDownload = downloadStore.downloadTasks.find(t => t.id === task.id)
+      if (!taskBeforeDownload || taskBeforeDownload.status === 'paused' || taskBeforeDownload.status === 'error') {
+        return
+      }
 
       // 使用内置下载器开始下载
       const result = await window.electronAPI?.startDownload(task.id, {
