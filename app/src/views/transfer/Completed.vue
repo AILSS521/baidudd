@@ -45,7 +45,7 @@
           </svg>
         </div>
         <div class="task-info">
-          <div class="task-name">{{ task.file.server_filename }}</div>
+          <div class="task-name" :title="task.file.server_filename">{{ task.file.server_filename }}</div>
           <div class="task-status" :class="task.status">
             <template v-if="task.status === 'completed'">
               {{ formatTime(task.completedAt) }}

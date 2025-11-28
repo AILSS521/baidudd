@@ -73,7 +73,7 @@
           </svg>
         </div>
         <div class="task-info">
-          <div class="task-name">{{ task.file.server_filename }}</div>
+          <div class="task-name" :title="task.file.server_filename">{{ task.file.server_filename }}</div>
           <!-- 下载中显示进度条 -->
           <template v-if="task.status === 'downloading' || (task.status === 'paused' && task.progress > 0)">
             <div class="task-progress">

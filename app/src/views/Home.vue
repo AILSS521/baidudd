@@ -80,6 +80,7 @@
               <span
                 class="file-name"
                 :class="{ clickable: file.isdir === 1 }"
+                :title="file.server_filename"
                 @click="file.isdir === 1 && navigateTo(file.path)"
               >
                 {{ file.server_filename }}
