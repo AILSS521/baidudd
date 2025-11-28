@@ -11,6 +11,7 @@ export const useDownloadStore = defineStore('download', () => {
   // 当前会话数据
   const currentCode = ref('')
   const currentFileList = ref<FileItem[]>([])
+  const currentPath = ref('/') // 当前浏览的完整网盘路径
   const basePath = ref('/') // 分享链接的基础路径（虚拟根目录）
   const sessionData = ref<{
     uk: string
@@ -47,6 +48,10 @@ export const useDownloadStore = defineStore('download', () => {
 
   function setBasePath(path: string) {
     basePath.value = path
+  }
+
+  function setCurrentPath(path: string) {
+    currentPath.value = path
   }
 
   // 添加单个文件任务到下载列表
@@ -573,6 +578,7 @@ export const useDownloadStore = defineStore('download', () => {
     failedTasks,
     currentCode,
     currentFileList,
+    currentPath,
     basePath,
     sessionData,
 
@@ -585,6 +591,7 @@ export const useDownloadStore = defineStore('download', () => {
     // 方法
     setCurrentCode,
     setCurrentFileList,
+    setCurrentPath,
     setBasePath,
     setSessionData,
     addToDownload,

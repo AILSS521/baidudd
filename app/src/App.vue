@@ -35,7 +35,7 @@
             </svg>
             <span>首页</span>
           </router-link>
-          <router-link to="/transfer" class="nav-item" active-class="active">
+          <router-link to="/transfer" class="nav-item" :class="{ 'has-download': hasActiveDownload }" active-class="active">
             <svg viewBox="0 0 24 24" width="20" height="20">
               <path fill="currentColor" d="M19.35 10.04A7.49 7.49 0 0 0 12 4C9.11 4 6.6 5.64 5.35 8.04A5.994 5.994 0 0 0 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM17 13l-5 5-5-5h3V9h4v4h3z" />
             </svg>
@@ -63,12 +63,21 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, onUnmounted } from 'vue'
+import { onMounted, onUnmounted, computed } from 'vue'
 import { useSettingsStore } from '@/stores/settings'
+import { useDownloadStore } from '@/stores/download'
 import { useDownloadManager } from '@/composables/useDownloadManager'
 
 const settingsStore = useSettingsStore()
+const downloadStore = useDownloadStore()
 const downloadManager = useDownloadManager()
+
+// 是否有活跃的下载任务（正在下载或等待中）
+const hasActiveDownload = computed(() => {
+  return downloadStore.downloadTasks.some(t =>
+    t.status === 'downloading' || t.status === 'waiting' || t.status === 'processing' || t.status === 'creating'
+  )
+})
 
 onMounted(() => {
   // 初始化设置
@@ -200,6 +209,13 @@ const handleClose = () => {
   &.active {
     background: $primary-color;
     color: white;
+  }
+
+  // 有下载任务时图标变绿色（非激活状态）
+  &.has-download:not(.active) {
+    svg {
+      color: $success-color;
+    }
   }
 }
 

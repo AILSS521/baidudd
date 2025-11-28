@@ -139,20 +139,35 @@
 
 <script setup lang="ts">
 import { ref, computed } from 'vue'
-import { useRouter } from 'vue-router'
 import { useApi } from '@/composables/useApi'
 import { useDownloadStore } from '@/stores/download'
+import { useDownloadManager } from '@/composables/useDownloadManager'
 import type { FileItem } from '@/types'
 import dayjs from 'dayjs'
 
-const router = useRouter()
 const api = useApi()
 const downloadStore = useDownloadStore()
+const downloadManager = useDownloadManager()
 
-const code = ref('')
-const fileList = ref<FileItem[]>([])
-const currentPath = ref('/') // 当前完整网盘路径
-const basePath = ref('/') // 首次获取文件列表时的根路径（用于显示转换和识别根目录）
+// 使用 store 中的状态（切换页面后保留）
+const code = computed({
+  get: () => downloadStore.currentCode,
+  set: (val: string) => downloadStore.setCurrentCode(val)
+})
+const fileList = computed({
+  get: () => downloadStore.currentFileList,
+  set: (val: FileItem[]) => downloadStore.setCurrentFileList(val)
+})
+const currentPath = computed({
+  get: () => downloadStore.currentPath,
+  set: (val: string) => downloadStore.setCurrentPath(val)
+})
+const basePath = computed({
+  get: () => downloadStore.basePath,
+  set: (val: string) => downloadStore.setBasePath(val)
+})
+
+// 组件本地状态（不需要保留）
 const loading = ref(false)
 const errorMessage = ref('')
 const hoverFileId = ref<number | string | null>(null)
@@ -224,9 +239,7 @@ async function fetchFileList(isInitial: boolean = false) {
       currentPath.value = parentDir
     }
 
-    downloadStore.setCurrentCode(code.value.trim())
-    downloadStore.setCurrentFileList(data.list)
-    downloadStore.setBasePath(basePath.value)
+    // 保存会话数据到 store
     downloadStore.setSessionData({
       uk: data.uk,
       shareid: data.shareid,
@@ -285,7 +298,7 @@ function toggleSelectAll() {
 function downloadSingle(file: FileItem) {
   // 单个文件下载，downloadBasePath 为 null 表示直接放在下载目录
   downloadStore.addToDownload([file], null)
-  router.push('/transfer/downloading')
+  downloadManager.startDownload()
 }
 
 // 下载文件夹（作为整体任务）
@@ -301,7 +314,7 @@ async function downloadFolder(folder: FileItem) {
       const folderParentPath = folder.path.substring(0, folder.path.lastIndexOf('/')) || '/'
       // 添加文件夹任务（作为整体显示）
       downloadStore.addFolderToDownload(folder, allFiles, folderParentPath)
-      router.push('/transfer/downloading')
+      downloadManager.startDownload()
     } else {
       errorMessage.value = '文件夹内没有可下载的文件'
       setTimeout(() => {
@@ -373,9 +386,9 @@ async function downloadSelected() {
     }
   }
 
-  // 有任务添加则跳转
+  // 有任务添加则开始下载
   if (files.length > 0 || folders.length > 0) {
-    router.push('/transfer/downloading')
+    downloadManager.startDownload()
   }
 }
 
