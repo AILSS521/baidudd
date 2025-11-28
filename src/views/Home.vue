@@ -739,10 +739,20 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   position: relative;
-  border-right: 1px solid $border-color;
+  padding-right: 8px;
 
-  &:last-child {
-    border-right: none;
+  &::after {
+    content: '';
+    position: absolute;
+    right: 0;
+    top: 4px;
+    bottom: 4px;
+    width: 1px;
+    background: $border-color;
+  }
+
+  &:last-child::after {
+    display: none;
   }
 
   &:hover {
@@ -758,11 +768,12 @@ onUnmounted(() => {
 
 .resize-handle {
   position: absolute;
-  right: 0;
+  right: -3px;
   top: 0;
   bottom: 0;
-  width: 6px;
+  width: 7px;
   cursor: col-resize;
+  z-index: 2;
 
   &:hover {
     background: rgba($primary-color, 0.3);
