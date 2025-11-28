@@ -11,7 +11,7 @@ const RETRY_DELAY = 5000
 const SMALL_FILE_THRESHOLD = 50 * 1024 * 1024 // 50MB，小于此大小的文件不受串行限制
 
 // 用于跟踪文件夹任务中当前正在下载的子文件
-const folderDownloadMap = ref<Map<string, { taskId: string; fileIndex: number }>>(new Map())
+const folderDownloadMap = ref<Map<string, { taskId: string; fileIndex: number; isLarge: boolean }>>(new Map())
 
 export function useDownloadManager() {
   const downloadStore = useDownloadStore()
@@ -42,14 +42,40 @@ export function useDownloadManager() {
           )
         } else if (progress.status === 'completed') {
           downloadStore.markFolderSubFileCompleted(folderInfo.taskId, folderInfo.fileIndex, true)
+          const wasLarge = folderInfo.isLarge
           folderDownloadMap.value.delete(progress.taskId)
-          // 继续下载文件夹中的下一个文件
-          processFolderNextFile(task)
+          // 大文件下载完成后释放锁，并继续下载下一个文件
+          if (wasLarge) {
+            isProcessingLargeFile.value = false
+            processFolderNextFile(task)
+          }
+          // 小文件完成后检查是否所有文件都完成了
+          if (!wasLarge) {
+            const allDone = task.subFiles?.every(sf => sf.status === 'completed' || sf.status === 'error')
+            if (allDone) {
+              const allSuccess = task.subFiles?.every(sf => sf.status === 'completed')
+              downloadStore.moveToCompleted(task, allSuccess ?? false)
+              processQueue()
+            }
+          }
         } else if (progress.status === 'error') {
           downloadStore.markFolderSubFileCompleted(folderInfo.taskId, folderInfo.fileIndex, false, progress.error || '下载失败')
+          const wasLarge = folderInfo.isLarge
           folderDownloadMap.value.delete(progress.taskId)
-          // 继续下载文件夹中的下一个文件
-          processFolderNextFile(task)
+          // 大文件下载失败后释放锁，并继续下载下一个文件
+          if (wasLarge) {
+            isProcessingLargeFile.value = false
+            processFolderNextFile(task)
+          }
+          // 小文件失败后检查是否所有文件都完成了
+          if (!wasLarge) {
+            const allDone = task.subFiles?.every(sf => sf.status === 'completed' || sf.status === 'error')
+            if (allDone) {
+              const allSuccess = task.subFiles?.every(sf => sf.status === 'completed')
+              downloadStore.moveToCompleted(task, allSuccess ?? false)
+              processQueue()
+            }
+          }
         } else if (progress.status === 'paused') {
           // 文件夹暂停时，子文件也标记暂停
           if (task.subFiles && task.subFiles[folderInfo.fileIndex]) {
@@ -98,11 +124,6 @@ export function useDownloadManager() {
 
   // 处理等待队列
   async function processQueue() {
-    // 检查下载中任务数
-    if (downloadStore.activeDownloadCount >= MAX_CONCURRENT_DOWNLOADS) {
-      return
-    }
-
     // 检查错误数量
     if (errorCount.value >= 3) {
       downloadStore.pauseAll()
@@ -116,20 +137,23 @@ export function useDownloadManager() {
 
     const isLarge = isLargeFile(nextTask)
 
-    // 大文件需要串行处理，检查是否有大文件正在处理
-    if (isLarge && isProcessingLargeFile.value) {
-      // 有大文件正在处理，延迟重试
-      setTimeout(processQueue, 500)
-      return
-    }
-
-    // 标记大文件开始处理
+    // 大文件需要检查并行限制和串行锁
     if (isLarge) {
+      // 检查大文件下载并行数限制
+      if (downloadStore.activeDownloadCount >= MAX_CONCURRENT_DOWNLOADS) {
+        return
+      }
+      // 大文件需要串行获取下载链接
+      if (isProcessingLargeFile.value) {
+        setTimeout(processQueue, 500)
+        return
+      }
+      // 标记大文件开始处理
       isProcessingLargeFile.value = true
     }
 
-    // 立即继续处理队列中的其他任务（小文件可以并行）
-    setTimeout(processQueue, 100)
+    // 立即继续处理队列中的其他任务（小文件可以并行，不受限制）
+    setTimeout(processQueue, 50)
 
     if (nextTask.isFolder) {
       // 处理文件夹任务
@@ -238,7 +262,7 @@ export function useDownloadManager() {
   }
 
   // 处理文件夹中的下一个文件
-  async function processFolderNextFile(task: DownloadTask, isLargeFolder: boolean = false) {
+  async function processFolderNextFile(task: DownloadTask, _isLargeFolder: boolean = false) {
     if (!task.isFolder || !task.subFiles) return
 
     // 检查任务是否被暂停
@@ -262,20 +286,26 @@ export function useDownloadManager() {
     // 判断当前子文件是否为大文件
     const isLargeSubFile = subFile.file.size >= SMALL_FILE_THRESHOLD
 
-    // 如果是大文件夹的第一个文件，已经持有锁；否则需要检查子文件大小
-    const needLock = !isLargeFolder && isLargeSubFile
-
-    // 大文件需要等待锁
-    if (needLock && isProcessingLargeFile.value) {
+    // 大文件需要等待锁，并且需要等待下载完成才处理下一个
+    if (isLargeSubFile && isProcessingLargeFile.value) {
+      // 有大文件正在处理，延迟重试
       setTimeout(() => processFolderNextFile(task, false), 500)
       return
     }
 
-    if (needLock) {
+    // 大文件加锁
+    if (isLargeSubFile) {
       isProcessingLargeFile.value = true
     }
 
     downloadStore.updateFolderSubFileStatus(task.id, index, 'processing')
+
+    // 小文件：立即继续处理下一个文件（并行）
+    // 大文件：等待下载完成后才处理下一个（在进度回调中触发）
+    if (!isLargeSubFile) {
+      // 小文件不阻塞，立即处理下一个
+      setTimeout(() => processFolderNextFile(task, false), 50)
+    }
 
     try {
       // 获取下载链接
@@ -292,11 +322,6 @@ export function useDownloadManager() {
 
       subFile.downloadUrl = linkData.url
       subFile.ua = linkData.ua
-
-      // 获取链接完成，释放锁
-      if (isLargeFolder || needLock) {
-        isProcessingLargeFile.value = false
-      }
 
       // 更新状态为创建文件中
       downloadStore.updateFolderSubFileStatus(task.id, index, 'creating')
@@ -322,8 +347,8 @@ export function useDownloadManager() {
       // 生成子文件的下载 ID
       const subFileDownloadId = `${task.id}-sub-${index}`
 
-      // 记录文件夹下载映射
-      folderDownloadMap.value.set(subFileDownloadId, { taskId: task.id, fileIndex: index })
+      // 记录文件夹下载映射，同时记录是否为大文件
+      folderDownloadMap.value.set(subFileDownloadId, { taskId: task.id, fileIndex: index, isLarge: isLargeSubFile })
 
       // 使用内置下载器开始下载
       const result = await window.electronAPI?.startDownload(subFileDownloadId, {
@@ -343,7 +368,7 @@ export function useDownloadManager() {
       console.error('获取下载链接失败:', error)
 
       // 出错也要释放锁
-      if (isLargeFolder || needLock) {
+      if (isLargeSubFile) {
         isProcessingLargeFile.value = false
       }
 
@@ -352,8 +377,10 @@ export function useDownloadManager() {
       if (subFile.retryCount >= MAX_RETRY) {
         downloadStore.markFolderSubFileCompleted(task.id, index, false, error.message || '获取下载链接失败')
         errorCount.value++
-        // 继续下载下一个文件
-        await processFolderNextFile(task)
+        // 大文件出错后继续下载下一个文件
+        if (isLargeSubFile) {
+          await processFolderNextFile(task)
+        }
       } else {
         // 等待后重试
         setTimeout(() => {
