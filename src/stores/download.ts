@@ -164,7 +164,17 @@ export const useDownloadStore = defineStore('download', () => {
     const task = downloadTasks.value.find(t => t.id === taskId)
     if (task) {
       task.progress = progress
-      task.speed = speed
+      // 速度平滑处理：如果新速度与旧速度差异过大（超过10倍），采用渐进式更新
+      // 避免暂停恢复后显示不真实的瞬间高速
+      const maxReasonableSpeed = 500 * 1024 * 1024 // 500MB/s 作为合理上限
+      let validSpeed = speed
+      if (speed > maxReasonableSpeed) {
+        validSpeed = task.speed // 保持旧速度
+      } else if (task.speed > 0 && speed > task.speed * 10) {
+        // 新速度是旧速度的10倍以上，采用渐进式更新
+        validSpeed = task.speed * 2
+      }
+      task.speed = validSpeed
       task.downloadedSize = downloadedSize
       if (task.status !== 'downloading') {
         task.status = 'downloading'
@@ -178,12 +188,25 @@ export const useDownloadStore = defineStore('download', () => {
     if (task && task.isFolder && task.subFiles && task.subFiles[fileIndex]) {
       const subFile = task.subFiles[fileIndex]
       subFile.progress = progress
-      subFile.speed = speed
+
+      // 速度平滑处理：避免暂停恢复后显示不真实的瞬间高速
+      const maxReasonableSpeed = 500 * 1024 * 1024 // 500MB/s 作为合理上限
+      let validSpeed = speed
+      if (speed > maxReasonableSpeed) {
+        validSpeed = subFile.speed // 保持旧速度
+      } else if (subFile.speed > 0 && speed > subFile.speed * 10) {
+        // 新速度是旧速度的10倍以上，采用渐进式更新
+        validSpeed = subFile.speed * 2
+      }
+      subFile.speed = validSpeed
       subFile.downloadedSize = downloadedSize
       subFile.status = 'downloading'
 
       // 更新文件夹总体进度
-      task.speed = speed
+      // 速度为所有正在下载的子文件速度之和
+      task.speed = task.subFiles.reduce((sum, sf) => {
+        return sum + (sf.status === 'downloading' ? sf.speed : 0)
+      }, 0)
       task.downloadedSize = task.subFiles.reduce((sum, sf) => sum + sf.downloadedSize, 0)
       task.progress = task.totalSize > 0 ? (task.downloadedSize / task.totalSize) * 100 : 0
       task.currentFileIndex = fileIndex
@@ -263,6 +286,7 @@ export const useDownloadStore = defineStore('download', () => {
             const subFileDownloadId = `${task.id}-sub-${index}`
             window.electronAPI?.pauseDownload(subFileDownloadId)
             subFile.status = 'paused'
+            subFile.speed = 0 // 重置子文件速度
           }
         })
       } else if (task.status === 'downloading') {
@@ -270,6 +294,7 @@ export const useDownloadStore = defineStore('download', () => {
         window.electronAPI?.pauseDownload(taskId)
       }
       task.status = 'paused'
+      task.speed = 0 // 重置速度，避免恢复时显示错误数值
     }
   }
 
@@ -277,6 +302,8 @@ export const useDownloadStore = defineStore('download', () => {
   function resumeTask(taskId: string) {
     const task = downloadTasks.value.find(t => t.id === taskId)
     if (task && task.status === 'paused') {
+      // 重置速度，等待实际下载进度更新
+      task.speed = 0
       if (task.isFolder && task.subFiles) {
         // 文件夹任务：统一设为等待状态，由 processQueue 处理
         // 因为需要在 useDownloadManager 中设置 folderDownloadMap
@@ -285,6 +312,7 @@ export const useDownloadStore = defineStore('download', () => {
         task.subFiles.forEach(sf => {
           if (sf.status === 'paused') {
             sf.status = 'waiting'
+            sf.speed = 0 // 重置子文件速度
           }
         })
       } else if (task.downloadUrl) {
@@ -309,12 +337,14 @@ export const useDownloadStore = defineStore('download', () => {
               const subFileDownloadId = `${task.id}-sub-${index}`
               window.electronAPI?.pauseDownload(subFileDownloadId)
               subFile.status = 'paused'
+              subFile.speed = 0 // 重置子文件速度
             }
           })
         } else if (task.status === 'downloading') {
           window.electronAPI?.pauseDownload(task.id)
         }
         task.status = 'paused'
+        task.speed = 0 // 重置速度
       }
     })
   }
@@ -323,12 +353,15 @@ export const useDownloadStore = defineStore('download', () => {
   function resumeAll() {
     downloadTasks.value.forEach(task => {
       if (task.status === 'paused') {
+        // 重置速度，等待实际下载进度更新
+        task.speed = 0
         if (task.isFolder && task.subFiles) {
           // 文件夹任务：统一设为等待状态，由 processQueue 处理
           task.status = 'waiting'
           task.subFiles.forEach(sf => {
             if (sf.status === 'paused') {
               sf.status = 'waiting'
+              sf.speed = 0 // 重置子文件速度
             }
           })
         } else if (task.downloadUrl) {
