@@ -694,6 +694,8 @@ async function downloadSelected() {
   // 有任务添加则开始下载
   if (files.length > 0 || folders.length > 0) {
     downloadManager.startDownload()
+    // 清除勾选状态
+    selectedIds.value.clear()
   }
 }
 
