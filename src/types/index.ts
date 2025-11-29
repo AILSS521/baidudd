@@ -35,6 +35,16 @@ export interface SubFileTask {
   localPath?: string
 }
 
+// 任务会话数据（用于获取下载链接）
+export interface TaskSessionData {
+  code: string
+  uk: string
+  shareid: string
+  randsk: string
+  surl: string
+  pwd: string
+}
+
 // 下载任务
 export interface DownloadTask {
   id: string
@@ -53,6 +63,7 @@ export interface DownloadTask {
   ua?: string
   localPath?: string
   downloadBasePath?: string | null // 下载基础路径，null 表示直接放在下载目录，不创建子目录
+  sessionData?: TaskSessionData // 任务专属的会话数据，避免被新下载编码覆盖
 
   // 文件夹任务专用字段
   isFolder?: boolean // 是否是文件夹任务

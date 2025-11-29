@@ -135,17 +135,26 @@ export function useDownloadManager() {
   async function processFileTask(task: DownloadTask) {
     downloadStore.updateTaskStatus(task.id, 'processing')
 
+    // 使用任务自身的会话数据，避免被新下载编码覆盖
+    const session = task.sessionData
+    if (!session) {
+      task.error = '会话数据丢失，请重新添加下载任务'
+      downloadStore.moveToCompleted(task, false)
+      processQueue()
+      return
+    }
+
     try {
       // 获取下载链接
       const linkData = await api.getDownloadLink({
-        code: downloadStore.currentCode,
-        randsk: downloadStore.sessionData!.randsk,
-        uk: downloadStore.sessionData!.uk,
-        shareid: downloadStore.sessionData!.shareid,
+        code: session.code,
+        randsk: session.randsk,
+        uk: session.uk,
+        shareid: session.shareid,
         fs_id: task.file.fs_id,
-        surl: downloadStore.sessionData!.surl,
+        surl: session.surl,
         dir: path.dirname(task.file.path) || '/',
-        pwd: downloadStore.sessionData!.pwd
+        pwd: session.pwd
       })
 
       // 获取链接后检查任务是否被暂停或已不存在
@@ -264,6 +273,14 @@ export function useDownloadManager() {
 
     downloadStore.updateFolderSubFileStatus(task.id, index, 'processing')
 
+    // 使用任务自身的会话数据，避免被新下载编码覆盖
+    const session = task.sessionData
+    if (!session) {
+      downloadStore.markFolderSubFileCompleted(task.id, index, false, '会话数据丢失，请重新添加下载任务')
+      processQueue()
+      return
+    }
+
     try {
       // 再次检查任务状态（异步操作前）
       const taskBeforeApi = downloadStore.downloadTasks.find(t => t.id === task.id)
@@ -275,14 +292,14 @@ export function useDownloadManager() {
 
       // 获取下载链接
       const linkData = await api.getDownloadLink({
-        code: downloadStore.currentCode,
-        randsk: downloadStore.sessionData!.randsk,
-        uk: downloadStore.sessionData!.uk,
-        shareid: downloadStore.sessionData!.shareid,
+        code: session.code,
+        randsk: session.randsk,
+        uk: session.uk,
+        shareid: session.shareid,
         fs_id: subFile.file.fs_id,
-        surl: downloadStore.sessionData!.surl,
+        surl: session.surl,
         dir: path.dirname(subFile.file.path) || '/',
-        pwd: downloadStore.sessionData!.pwd
+        pwd: session.pwd
       })
 
       subFile.downloadUrl = linkData.url

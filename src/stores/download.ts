@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import type { FileItem, DownloadTask, TaskStatus, SubFileTask } from '@/types'
+import type { FileItem, DownloadTask, TaskStatus, SubFileTask, TaskSessionData } from '@/types'
 
 export const useDownloadStore = defineStore('download', () => {
   // 状态 - 合并等待和下载中为一个列表
@@ -56,6 +56,16 @@ export const useDownloadStore = defineStore('download', () => {
 
   // 添加单个文件任务到下载列表
   function addToDownload(files: FileItem[], downloadBasePath: string | null = null) {
+    // 保存当前会话数据到任务中，避免被新下载编码覆盖
+    const taskSession: TaskSessionData | undefined = sessionData.value ? {
+      code: currentCode.value,
+      uk: sessionData.value.uk,
+      shareid: sessionData.value.shareid,
+      randsk: sessionData.value.randsk,
+      surl: sessionData.value.surl,
+      pwd: sessionData.value.pwd
+    } : undefined
+
     const newTasks: DownloadTask[] = files.map(file => ({
       id: `${Date.now()}-${file.fs_id}`,
       file,
@@ -67,13 +77,24 @@ export const useDownloadStore = defineStore('download', () => {
       createdAt: Date.now(),
       retryCount: 0,
       downloadBasePath,
-      isFolder: false
+      isFolder: false,
+      sessionData: taskSession
     }))
     downloadTasks.value.push(...newTasks)
   }
 
   // 添加文件夹任务到下载列表
   function addFolderToDownload(folder: FileItem, files: FileItem[], downloadBasePath: string) {
+    // 保存当前会话数据到任务中，避免被新下载编码覆盖
+    const taskSession: TaskSessionData | undefined = sessionData.value ? {
+      code: currentCode.value,
+      uk: sessionData.value.uk,
+      shareid: sessionData.value.shareid,
+      randsk: sessionData.value.randsk,
+      surl: sessionData.value.surl,
+      pwd: sessionData.value.pwd
+    } : undefined
+
     // 计算总大小
     const totalSize = files.reduce((sum, f) => sum + f.size, 0)
 
@@ -103,7 +124,8 @@ export const useDownloadStore = defineStore('download', () => {
       subFiles,
       completedCount: 0,
       totalCount: files.length,
-      currentFileIndex: 0
+      currentFileIndex: 0,
+      sessionData: taskSession
     }
 
     downloadTasks.value.push(folderTask)
