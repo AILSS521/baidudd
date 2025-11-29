@@ -303,6 +303,22 @@ export function useDownloadManager() {
     task.currentFileName = subFile.file.server_filename
     task.currentFileIndex = index
 
+    // 生成子文件的下载 ID
+    const subFileDownloadId = `${task.id}-sub-${index}`
+
+    // 如果子文件已经有下载链接（暂停后恢复的情况），直接恢复下载
+    if (subFile.downloadUrl && subFile.localPath) {
+      downloadStore.updateFolderSubFileStatus(task.id, index, 'downloading')
+      if (currentTask.status !== 'downloading') {
+        downloadStore.updateTaskStatus(task.id, 'downloading')
+      }
+      // 重新注册映射
+      folderDownloadMap.value.set(subFileDownloadId, { taskId: task.id, fileIndex: index })
+      // 恢复下载
+      window.electronAPI?.resumeDownload(subFileDownloadId)
+      return
+    }
+
     downloadStore.updateFolderSubFileStatus(task.id, index, 'processing')
 
     // 使用任务自身的会话数据，避免被新下载编码覆盖
@@ -365,9 +381,6 @@ export function useDownloadManager() {
         : settingsStore.downloadPath
       const localPath = path.join(localDir, subFile.file.server_filename)
       subFile.localPath = localPath
-
-      // 生成子文件的下载 ID
-      const subFileDownloadId = `${task.id}-sub-${index}`
 
       // 记录文件夹下载映射
       folderDownloadMap.value.set(subFileDownloadId, { taskId: task.id, fileIndex: index })
