@@ -256,15 +256,15 @@ export const useDownloadStore = defineStore('download', () => {
   function pauseTask(taskId: string) {
     const task = downloadTasks.value.find(t => t.id === taskId)
     if (task && (task.status === 'downloading' || task.status === 'waiting' || task.status === 'processing' || task.status === 'creating')) {
-      // 对于文件夹任务，需要暂停当前正在下载的子文件
-      if (task.isFolder && task.subFiles && task.currentFileIndex !== undefined) {
-        const subFileDownloadId = `${task.id}-sub-${task.currentFileIndex}`
-        window.electronAPI?.pauseDownload(subFileDownloadId)
-        // 标记当前子文件为暂停
-        const subFile = task.subFiles[task.currentFileIndex]
-        if (subFile && (subFile.status === 'downloading' || subFile.status === 'processing' || subFile.status === 'creating')) {
-          subFile.status = 'paused'
-        }
+      // 对于文件夹任务，需要暂停所有正在下载的子文件
+      if (task.isFolder && task.subFiles) {
+        task.subFiles.forEach((subFile, index) => {
+          if (subFile.status === 'downloading' || subFile.status === 'processing' || subFile.status === 'creating') {
+            const subFileDownloadId = `${task.id}-sub-${index}`
+            window.electronAPI?.pauseDownload(subFileDownloadId)
+            subFile.status = 'paused'
+          }
+        })
       } else if (task.status === 'downloading') {
         // 普通文件任务
         window.electronAPI?.pauseDownload(taskId)
@@ -302,14 +302,15 @@ export const useDownloadStore = defineStore('download', () => {
   function pauseAll() {
     downloadTasks.value.forEach(task => {
       if (task.status === 'downloading' || task.status === 'waiting' || task.status === 'processing' || task.status === 'creating') {
-        // 对于文件夹任务，需要暂停当前正在下载的子文件
-        if (task.isFolder && task.subFiles && task.currentFileIndex !== undefined) {
-          const subFileDownloadId = `${task.id}-sub-${task.currentFileIndex}`
-          window.electronAPI?.pauseDownload(subFileDownloadId)
-          const subFile = task.subFiles[task.currentFileIndex]
-          if (subFile && (subFile.status === 'downloading' || subFile.status === 'processing' || subFile.status === 'creating')) {
-            subFile.status = 'paused'
-          }
+        // 对于文件夹任务，需要暂停所有正在下载的子文件
+        if (task.isFolder && task.subFiles) {
+          task.subFiles.forEach((subFile, index) => {
+            if (subFile.status === 'downloading' || subFile.status === 'processing' || subFile.status === 'creating') {
+              const subFileDownloadId = `${task.id}-sub-${index}`
+              window.electronAPI?.pauseDownload(subFileDownloadId)
+              subFile.status = 'paused'
+            }
+          })
         } else if (task.status === 'downloading') {
           window.electronAPI?.pauseDownload(task.id)
         }
