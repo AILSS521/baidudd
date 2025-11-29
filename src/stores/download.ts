@@ -156,18 +156,6 @@ export const useDownloadStore = defineStore('download', () => {
     const task = downloadTasks.value.find(t => t.id === taskId)
     if (task) {
       task.status = status
-      // 非下载状态时重置速度
-      if (status !== 'downloading') {
-        task.speed = 0
-        // 文件夹任务同时重置所有非下载中子文件的速度
-        if (task.isFolder && task.subFiles) {
-          task.subFiles.forEach(sf => {
-            if (sf.status !== 'downloading') {
-              sf.speed = 0
-            }
-          })
-        }
-      }
     }
   }
 
@@ -216,7 +204,7 @@ export const useDownloadStore = defineStore('download', () => {
     if (task && task.isFolder && task.subFiles && task.subFiles[fileIndex]) {
       const subFile = task.subFiles[fileIndex]
       subFile.status = success ? 'completed' : 'error'
-      subFile.speed = 0 // 完成后重置速度
+      subFile.speed = 0 // 完成后重置子文件速度
       if (error) subFile.error = error
       if (success) {
         subFile.progress = 100
@@ -226,13 +214,9 @@ export const useDownloadStore = defineStore('download', () => {
       // 更新已完成数量
       task.completedCount = task.subFiles.filter(sf => sf.status === 'completed').length
 
-      // 更新文件夹总体下载量和速度
+      // 更新文件夹总体下载量
       task.downloadedSize = task.subFiles.reduce((sum, sf) => sum + sf.downloadedSize, 0)
       task.progress = task.totalSize > 0 ? (task.downloadedSize / task.totalSize) * 100 : 0
-      // 重新计算文件夹总速度
-      task.speed = task.subFiles.reduce((sum, sf) => {
-        return sum + (sf.status === 'downloading' ? sf.speed : 0)
-      }, 0)
 
       // 如果有子文件失败，立即停止整个文件夹下载
       if (!success) {
@@ -273,10 +257,6 @@ export const useDownloadStore = defineStore('download', () => {
       if (status !== 'downloading') {
         task.subFiles[fileIndex].speed = 0
       }
-      // 重新计算文件夹总速度
-      task.speed = task.subFiles.reduce((sum, sf) => {
-        return sum + (sf.status === 'downloading' ? sf.speed : 0)
-      }, 0)
     }
   }
 
