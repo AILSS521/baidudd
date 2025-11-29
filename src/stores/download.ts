@@ -164,17 +164,7 @@ export const useDownloadStore = defineStore('download', () => {
     const task = downloadTasks.value.find(t => t.id === taskId)
     if (task) {
       task.progress = progress
-      // 速度平滑处理：如果新速度与旧速度差异过大（超过10倍），采用渐进式更新
-      // 避免暂停恢复后显示不真实的瞬间高速
-      const maxReasonableSpeed = 500 * 1024 * 1024 // 500MB/s 作为合理上限
-      let validSpeed = speed
-      if (speed > maxReasonableSpeed) {
-        validSpeed = task.speed // 保持旧速度
-      } else if (task.speed > 0 && speed > task.speed * 10) {
-        // 新速度是旧速度的10倍以上，采用渐进式更新
-        validSpeed = task.speed * 2
-      }
-      task.speed = validSpeed
+      task.speed = speed
       task.downloadedSize = downloadedSize
       if (task.status !== 'downloading') {
         task.status = 'downloading'
@@ -188,17 +178,7 @@ export const useDownloadStore = defineStore('download', () => {
     if (task && task.isFolder && task.subFiles && task.subFiles[fileIndex]) {
       const subFile = task.subFiles[fileIndex]
       subFile.progress = progress
-
-      // 速度平滑处理：避免暂停恢复后显示不真实的瞬间高速
-      const maxReasonableSpeed = 500 * 1024 * 1024 // 500MB/s 作为合理上限
-      let validSpeed = speed
-      if (speed > maxReasonableSpeed) {
-        validSpeed = subFile.speed // 保持旧速度
-      } else if (subFile.speed > 0 && speed > subFile.speed * 10) {
-        // 新速度是旧速度的10倍以上，采用渐进式更新
-        validSpeed = subFile.speed * 2
-      }
-      subFile.speed = validSpeed
+      subFile.speed = speed
       subFile.downloadedSize = downloadedSize
       subFile.status = 'downloading'
 
