@@ -7,7 +7,7 @@ interface DownloadProgress {
   downloadedSize: number
   speed: number
   progress: number
-  status: 'downloading' | 'paused' | 'completed' | 'error'
+  status: 'creating' | 'downloading' | 'paused' | 'completed' | 'error'
   error?: string
 }
 

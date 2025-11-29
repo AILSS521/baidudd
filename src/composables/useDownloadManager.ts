@@ -41,7 +41,10 @@ export function useDownloadManager() {
         const task = downloadStore.downloadTasks.find(t => t.id === folderInfo.taskId)
         if (!task) return
 
-        if (progress.status === 'downloading') {
+        if (progress.status === 'creating') {
+          // 正在创建/预分配文件
+          downloadStore.updateFolderSubFileStatus(folderInfo.taskId, folderInfo.fileIndex, 'creating')
+        } else if (progress.status === 'downloading') {
           downloadStore.updateFolderSubFileProgress(
             folderInfo.taskId,
             folderInfo.fileIndex,
@@ -85,7 +88,10 @@ export function useDownloadManager() {
         const task = downloadStore.downloadTasks.find(t => t.id === progress.taskId)
         if (!task) return
 
-        if (progress.status === 'downloading') {
+        if (progress.status === 'creating') {
+          // 正在创建/预分配文件
+          downloadStore.updateTaskStatus(task.id, 'creating')
+        } else if (progress.status === 'downloading') {
           downloadStore.updateTaskProgress(
             task.id,
             progress.progress,

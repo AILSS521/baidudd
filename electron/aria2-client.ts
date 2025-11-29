@@ -40,7 +40,7 @@ export interface DownloadProgress {
   downloadedSize: number
   speed: number
   progress: number
-  status: 'downloading' | 'paused' | 'completed' | 'error'
+  status: 'creating' | 'downloading' | 'paused' | 'completed' | 'error'
   error?: string
 }
 
@@ -523,10 +523,15 @@ export class Aria2Client extends EventEmitter {
 
     switch (task.status) {
       case 'active':
-        status = 'downloading'
+        // 如果还没有下载数据，说明正在预分配文件空间
+        if (downloadedSize === 0 && totalSize > 0) {
+          status = 'creating'
+        } else {
+          status = 'downloading'
+        }
         break
       case 'waiting':
-        status = 'downloading' // 等待中也算下载中
+        status = 'creating' // 等待中显示为创建中
         break
       case 'paused':
         status = 'paused'
