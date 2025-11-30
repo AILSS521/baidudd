@@ -32,7 +32,7 @@
         </div>
         <div class="app-info">
           <div class="app-name">图片下载器</div>
-          <div class="app-version">版本 1.0.0</div>
+          <div class="app-version">版本 1.0.2</div>
         </div>
       </div>
     </div>
