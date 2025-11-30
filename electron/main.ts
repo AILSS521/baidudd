@@ -9,7 +9,7 @@ let mainWindow: BrowserWindow | null = null
 let splashWindow: BrowserWindow | null = null
 
 // 当前客户端版本
-const CLIENT_VERSION = '1.0.3'
+const CLIENT_VERSION = '1.0.4'
 // 版本检查API地址
 const VERSION_API_URL = 'https://download.linglong521.cn/version.php'
 
