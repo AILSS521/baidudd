@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain, dialog, shell } from 'electron'
 import path from 'path'
 import fs from 'fs'
+import http from 'http'
 import https from 'https'
 import { downloadManager } from './downloader'
 
@@ -73,6 +74,62 @@ function getCurrentDownloadPath(): string {
     return config.downloadPath
   }
   return getDefaultDownloadPath()
+}
+
+// 解析 302 跳转，获取最终 URL
+function resolveRedirectUrl(url: string, userAgent?: string, maxRedirects: number = 5): Promise<string> {
+  return new Promise((resolve, reject) => {
+    if (maxRedirects <= 0) {
+      reject(new Error('重定向次数过多'))
+      return
+    }
+
+    const isHttps = url.startsWith('https://')
+    const httpModule = isHttps ? https : http
+
+    const options: http.RequestOptions = {
+      method: 'HEAD',
+      timeout: 15000,
+      headers: {
+        'User-Agent': userAgent || 'netdisk;pan.baidu.com'
+      }
+    }
+
+    const request = httpModule.request(url, options, (res) => {
+      // 如果是重定向响应
+      if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+        const redirectUrl = res.headers.location
+        // 处理相对路径重定向
+        let absoluteUrl: string
+        if (redirectUrl.startsWith('http://') || redirectUrl.startsWith('https://')) {
+          absoluteUrl = redirectUrl
+        } else {
+          const urlObj = new URL(url)
+          absoluteUrl = `${urlObj.protocol}//${urlObj.host}${redirectUrl}`
+        }
+        console.log(`[redirect] ${res.statusCode} -> ${absoluteUrl}`)
+        // 递归解析下一个重定向
+        resolveRedirectUrl(absoluteUrl, userAgent, maxRedirects - 1)
+          .then(resolve)
+          .catch(reject)
+      } else {
+        // 不是重定向，返回当前 URL
+        resolve(url)
+      }
+    })
+
+    request.on('error', (err) => {
+      console.error('[redirect] 请求错误:', err.message)
+      reject(err)
+    })
+
+    request.on('timeout', () => {
+      request.destroy()
+      reject(new Error('请求超时'))
+    })
+
+    request.end()
+  })
 }
 
 // 版本检查
@@ -254,9 +311,23 @@ ipcMain.handle('download:start', async (_, taskId: string, options: {
   userAgent?: string
 }) => {
   try {
+    let finalUrl = options.url
+
+    // 如果 URL 不是直接的百度下载链接，先解析 302 跳转获取最终 URL
+    if (!options.url.includes('baidupcs.com')) {
+      console.log(`[download] 解析重定向: ${options.url}`)
+      try {
+        finalUrl = await resolveRedirectUrl(options.url, options.userAgent)
+        console.log(`[download] 最终 URL: ${finalUrl}`)
+      } catch (redirectError: any) {
+        console.error('[download] 解析重定向失败，使用原始 URL:', redirectError.message)
+        // 如果解析失败，继续使用原始 URL
+      }
+    }
+
     // 使用 aria2 添加下载任务
     await downloadManager.addTask(taskId, {
-      url: options.url,
+      url: finalUrl,
       savePath: options.savePath,
       filename: options.filename,
       userAgent: options.userAgent
