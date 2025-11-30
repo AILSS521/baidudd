@@ -44,6 +44,7 @@ export interface TaskSessionData {
   surl: string
   pwd: string
   basePath: string // 分享链接的根目录路径，用于计算相对路径
+  currentApiDir?: string // 添加任务时的API目录路径，用于获取下载链接
 }
 
 // 下载任务
