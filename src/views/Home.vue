@@ -39,7 +39,7 @@
       </div>
 
       <!-- 文件表格 -->
-      <div class="file-table" ref="fileTableRef">
+      <div class="file-table" ref="fileTableRef" @scroll="handleScroll">
         <div class="table-header">
           <div class="col-checkbox header-checkbox">
             <input
@@ -213,7 +213,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, reactive, onUnmounted, onMounted, nextTick, watch } from 'vue'
+import { ref, computed, reactive, onUnmounted, nextTick, watch } from 'vue'
 import { useApi } from '@/composables/useApi'
 import { useDownloadStore } from '@/stores/download'
 import { useDownloadManager } from '@/composables/useDownloadManager'
@@ -742,10 +742,11 @@ function formatTime(timestamp: number): string {
 }
 
 // 滚动检测 - 检测是否滚动到底部
-function handleScroll() {
-  if (!fileTableRef.value) return
+function handleScroll(event: Event) {
+  const target = event.target as HTMLElement
+  if (!target) return
 
-  const { scrollTop, scrollHeight, clientHeight } = fileTableRef.value
+  const { scrollTop, scrollHeight, clientHeight } = target
   // 判断是否滚动到底部（留10px的容差）
   const isAtBottom = scrollTop + clientHeight >= scrollHeight - 10
   // 判断是否离开底部区域（向上滚动超过50px）
@@ -777,36 +778,18 @@ function handleCollapsedDownload() {
   }
 }
 
-// 监听文件列表变化，重新绑定滚动监听
-watch(() => fileList.value.length, async (newLength, oldLength) => {
+// 监听文件列表变化，重置滚动状态
+watch(() => fileList.value.length, async () => {
   await nextTick()
   // 文件列表变化时重置滚动状态
   isScrolledToBottom.value = false
   isFloatBarCollapsed.value = false
-
-  // 如果从无到有，需要重新绑定滚动监听
-  if (oldLength === 0 && newLength > 0 && fileTableRef.value) {
-    fileTableRef.value.addEventListener('scroll', handleScroll)
-  }
-})
-
-// 组件挂载时绑定滚动监听
-onMounted(() => {
-  // 使用 nextTick 确保 DOM 已渲染
-  nextTick(() => {
-    if (fileTableRef.value) {
-      fileTableRef.value.addEventListener('scroll', handleScroll)
-    }
-  })
 })
 
 // 组件卸载时清理事件监听
 onUnmounted(() => {
   document.removeEventListener('mousemove', handleResize)
   document.removeEventListener('mouseup', stopResize)
-  if (fileTableRef.value) {
-    fileTableRef.value.removeEventListener('scroll', handleScroll)
-  }
 })
 </script>
 
