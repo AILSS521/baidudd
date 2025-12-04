@@ -258,6 +258,7 @@ function createSplashWindow(): void {
     frame: false,
     transparent: false,
     resizable: false,
+    maximizable: false,
     movable: true,
     alwaysOnTop: true,
     skipTaskbar: false,
