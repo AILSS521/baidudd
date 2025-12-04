@@ -95,10 +95,10 @@ export function useDownloadManager() {
           }
         } else if (progress.status === 'paused') {
           // 文件夹暂停时，子文件也标记暂停
-          // 但如果子文件是 waiting 状态（等待恢复），不要覆盖
+          // 但如果子文件是 waiting/downloading 状态（正在恢复中），不要覆盖
           if (task.subFiles && task.subFiles[folderInfo.fileIndex]) {
             const subFile = task.subFiles[folderInfo.fileIndex]
-            if (subFile.status !== 'waiting') {
+            if (subFile.status !== 'waiting' && subFile.status !== 'downloading') {
               subFile.status = 'paused'
               // 暂停后释放并发位置，处理等待队列
               processQueue()
@@ -128,9 +128,9 @@ export function useDownloadManager() {
           downloadStore.moveToCompleted(task, false)
           processQueue()
         } else if (progress.status === 'paused') {
-          // 只有当任务不是 waiting 状态时才设为 paused
-          // （waiting 状态表示用户已点击恢复，等待并发位置）
-          if (task.status !== 'waiting') {
+          // 只有当任务不是 waiting/downloading 状态时才设为 paused
+          // （waiting 表示等待并发位置，downloading 表示正在恢复中）
+          if (task.status !== 'waiting' && task.status !== 'downloading') {
             task.status = 'paused'
             // 暂停后释放并发位置，处理等待队列
             processQueue()
