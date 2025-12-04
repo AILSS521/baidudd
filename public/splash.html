@@ -229,12 +229,12 @@
         await new Promise(r => setTimeout(r, 300));
 
         // 测试下载器连接
-        addLog('step1');
-        await new Promise(r => setTimeout(r, 300));
-        addLog('step2');
-        await new Promise(r => setTimeout(r, 300));
-        addLog('step3');
-        await new Promise(r => setTimeout(r, 500));
+        addLog('A');
+        await new Promise(r => setTimeout(r, 1000));
+        addLog('B');
+        await new Promise(r => setTimeout(r, 1000));
+        addLog('C');
+        await new Promise(r => setTimeout(r, 1000));
         fadeOutAndProceed();
       } catch (error) {
         addLog('初始化失败，10秒后自动退出', 'error');
