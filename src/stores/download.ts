@@ -364,21 +364,16 @@ export const useDownloadStore = defineStore('download', () => {
       if (task.status === 'paused') {
         // 重置速度，等待实际下载进度更新
         task.speed = 0
+        // 统一设为等待状态，由 processQueue 处理并发限制
+        task.status = 'waiting'
         if (task.isFolder && task.subFiles) {
-          // 文件夹任务：统一设为等待状态，由 processQueue 处理
-          task.status = 'waiting'
+          // 恢复暂停的子文件为等待状态
           task.subFiles.forEach(sf => {
             if (sf.status === 'paused') {
               sf.status = 'waiting'
               sf.speed = 0 // 重置子文件速度
             }
           })
-        } else if (task.downloadUrl) {
-          // 普通文件任务：如果已经开始下载过，调用恢复API
-          task.status = 'downloading'
-          window.electronAPI?.resumeDownload(task.id)
-        } else {
-          task.status = 'waiting'
         }
       }
     })
