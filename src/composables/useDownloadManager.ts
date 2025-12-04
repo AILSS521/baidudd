@@ -98,6 +98,8 @@ export function useDownloadManager() {
           if (task.subFiles && task.subFiles[folderInfo.fileIndex]) {
             task.subFiles[folderInfo.fileIndex].status = 'paused'
           }
+          // 暂停后释放并发位置，处理等待队列
+          processQueue()
         }
       } else {
         // 普通文件下载
@@ -123,6 +125,8 @@ export function useDownloadManager() {
           processQueue()
         } else if (progress.status === 'paused') {
           task.status = 'paused'
+          // 暂停后释放并发位置，处理等待队列
+          processQueue()
         }
       }
     })

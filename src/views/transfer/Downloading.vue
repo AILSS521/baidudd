@@ -260,6 +260,8 @@ function formatSpeed(bytesPerSecond: number): string {
 
 function pauseTask(id: string) {
   downloadStore.pauseTask(id)
+  // 暂停后立即处理等待队列
+  downloadManager.processQueue()
 }
 
 function resumeTask(id: string) {
@@ -315,6 +317,8 @@ async function deleteSelected() {
 
 function pauseAll() {
   downloadStore.pauseAll()
+  // 暂停后立即处理等待队列
+  downloadManager.processQueue()
 }
 
 function startAll() {
