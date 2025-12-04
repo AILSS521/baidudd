@@ -306,8 +306,8 @@ export const useDownloadStore = defineStore('download', () => {
             subFile.speed = 0 // 重置子文件速度
           }
         })
-      } else if (task.status === 'downloading') {
-        // 普通文件任务
+      } else if (task.status === 'downloading' || task.status === 'creating') {
+        // 普通文件任务（下载中或创建文件中）
         window.electronAPI?.pauseDownload(taskId)
       }
       task.status = 'paused'
@@ -349,7 +349,7 @@ export const useDownloadStore = defineStore('download', () => {
               subFile.speed = 0 // 重置子文件速度
             }
           })
-        } else if (task.status === 'downloading') {
+        } else if (task.status === 'downloading' || task.status === 'creating') {
           window.electronAPI?.pauseDownload(task.id)
         }
         task.status = 'paused'
