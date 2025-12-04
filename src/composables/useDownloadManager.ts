@@ -95,11 +95,15 @@ export function useDownloadManager() {
           }
         } else if (progress.status === 'paused') {
           // 文件夹暂停时，子文件也标记暂停
+          // 但如果子文件是 waiting 状态（等待恢复），不要覆盖
           if (task.subFiles && task.subFiles[folderInfo.fileIndex]) {
-            task.subFiles[folderInfo.fileIndex].status = 'paused'
+            const subFile = task.subFiles[folderInfo.fileIndex]
+            if (subFile.status !== 'waiting') {
+              subFile.status = 'paused'
+              // 暂停后释放并发位置，处理等待队列
+              processQueue()
+            }
           }
-          // 暂停后释放并发位置，处理等待队列
-          processQueue()
         }
       } else {
         // 普通文件下载
@@ -124,9 +128,13 @@ export function useDownloadManager() {
           downloadStore.moveToCompleted(task, false)
           processQueue()
         } else if (progress.status === 'paused') {
-          task.status = 'paused'
-          // 暂停后释放并发位置，处理等待队列
-          processQueue()
+          // 只有当任务不是 waiting 状态时才设为 paused
+          // （waiting 状态表示用户已点击恢复，等待并发位置）
+          if (task.status !== 'waiting') {
+            task.status = 'paused'
+            // 暂停后释放并发位置，处理等待队列
+            processQueue()
+          }
         }
       }
     })
