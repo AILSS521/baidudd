@@ -224,7 +224,9 @@
         // 显示选择的线路
         if (initResult.route) {
           const latencyText = initResult.route.latency >= 0 ? `${initResult.route.latency}ms` : '超时';
-          addLog(`下载线路: ${initResult.route.name} (${latencyText})`, 'success');
+          addLog(`线路: ${initResult.route.name} ${latencyText}`, 'success');
+        } else {
+          addLog('线路选择中...', 'normal');
         }
         await new Promise(r => setTimeout(r, 200));
 
