@@ -220,6 +220,12 @@
         }
 
         addLog('下载器已启动', 'success');
+
+        // 显示选择的线路
+        if (initResult.route) {
+          const latencyText = initResult.route.latency >= 0 ? `${initResult.route.latency}ms` : '超时';
+          addLog(`下载线路: ${initResult.route.name} (${latencyText})`, 'success');
+        }
         await new Promise(r => setTimeout(r, 200));
 
         // 测试下载器连接

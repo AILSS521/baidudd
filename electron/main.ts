@@ -492,7 +492,7 @@ ipcMain.handle('splash:initDownloader', async () => {
       console.log(`[route] 已选择线路: ${route.name} (${route.ip}) 延迟: ${route.latency}ms`)
     }
 
-    return { success: true }
+    return { success: true, route }
   } catch (error: any) {
     console.error('初始化下载器失败:', error)
     return { success: false, error: error.message }
