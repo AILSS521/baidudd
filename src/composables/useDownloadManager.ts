@@ -215,6 +215,16 @@ export function useDownloadManager() {
 
   // 处理单个文件任务
   async function processFileTask(task: DownloadTask) {
+    // 如果任务已有下载链接（暂停后恢复），直接恢复下载
+    if (task.downloadUrl) {
+      downloadStore.updateTaskStatus(task.id, 'downloading')
+      await window.electronAPI?.resumeDownload(task.id)
+      // 释放锁并处理下一个任务
+      isFetchingLink.value = false
+      processQueue()
+      return
+    }
+
     downloadStore.updateTaskStatus(task.id, 'processing')
 
     // 使用任务自身的会话数据，避免被新下载编码覆盖

@@ -321,10 +321,9 @@ export const useDownloadStore = defineStore('download', () => {
     if (task && task.status === 'paused') {
       // 重置速度，等待实际下载进度更新
       task.speed = 0
+      // 统一设为等待状态，由 processQueue 处理并发限制
+      task.status = 'waiting'
       if (task.isFolder && task.subFiles) {
-        // 文件夹任务：统一设为等待状态，由 processQueue 处理
-        // 因为需要在 useDownloadManager 中设置 folderDownloadMap
-        task.status = 'waiting'
         // 恢复暂停的子文件为等待状态（只恢复 paused 状态的，已完成的保留）
         task.subFiles.forEach(sf => {
           if (sf.status === 'paused') {
@@ -332,13 +331,6 @@ export const useDownloadStore = defineStore('download', () => {
             sf.speed = 0 // 重置子文件速度
           }
         })
-      } else if (task.downloadUrl) {
-        // 普通文件任务：如果已经开始下载过，调用恢复API
-        task.status = 'downloading'
-        window.electronAPI?.resumeDownload(taskId)
-      } else {
-        // 还没开始下载，改为等待状态
-        task.status = 'waiting'
       }
     }
   }
