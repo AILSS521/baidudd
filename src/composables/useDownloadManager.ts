@@ -5,8 +5,7 @@ import { useApi } from './useApi'
 import type { DownloadProgress, DownloadTask, SubFileTask } from '@/types'
 import path from 'path-browserify'
 
-const MAX_CONCURRENT_DOWNLOADS = 3
-const MAX_FOLDER_CONCURRENT = 3  // 文件夹内子文件最大并行数
+const MAX_CONCURRENT_DOWNLOADS = 3  // 总并发数（单文件 + 文件夹子文件）
 const MAX_RETRY = 3
 const RETRY_DELAY = 5000
 
@@ -72,7 +71,7 @@ export function useDownloadManager() {
         } else if (progress.status === 'completed') {
           downloadStore.markFolderSubFileCompleted(folderInfo.taskId, folderInfo.fileIndex, true)
           folderDownloadMap.value.delete(progress.taskId)
-          // 并行下载：完成后尝试启动更多子文件
+          // 完成后尝试启动下一个子文件
           if (task.status !== 'paused' && task.status !== 'error') {
             // 检查是否所有文件都完成了
             if (task.subFiles) {
@@ -80,13 +79,14 @@ export function useDownloadManager() {
               if (allDone) {
                 const allSuccess = task.subFiles.every(sf => sf.status === 'completed')
                 downloadStore.moveToCompleted(task, allSuccess)
-                processQueue()
               } else {
-                // 继续下载下一批文件
+                // 继续下载下一个文件
                 fillFolderDownloadSlots(task)
               }
             }
           }
+          // 处理队列中的其他任务（释放了一个并发位置）
+          processQueue()
         } else if (progress.status === 'error') {
           folderDownloadMap.value.delete(progress.taskId)
           // 标记子文件失败，整个文件夹停止
@@ -165,6 +165,19 @@ export function useDownloadManager() {
     return count
   }
 
+  // 获取当前总活跃下载数（单文件 + 文件夹子文件）
+  function getTotalActiveDownloads(): number {
+    // 统计正在下载的单文件
+    const singleFileDownloads = downloadStore.downloadTasks.filter(t =>
+      !t.isFolder && (t.status === 'downloading' || t.status === 'creating' || t.status === 'processing')
+    ).length
+
+    // 统计文件夹子文件下载数（通过 folderDownloadMap）
+    const folderSubFileDownloads = folderDownloadMap.value.size
+
+    return singleFileDownloads + folderSubFileDownloads
+  }
+
   // 处理等待队列
   async function processQueue() {
     // 检查错误数量
@@ -177,8 +190,8 @@ export function useDownloadManager() {
     const nextTask = downloadStore.getNextWaitingTask()
     if (!nextTask) return
 
-    // 检查下载并行数限制
-    if (downloadStore.activeDownloadCount >= MAX_CONCURRENT_DOWNLOADS) {
+    // 检查下载并行数限制（统一计算单文件 + 文件夹子文件）
+    if (getTotalActiveDownloads() >= MAX_CONCURRENT_DOWNLOADS) {
       return
     }
 
@@ -319,14 +332,15 @@ export function useDownloadManager() {
     } else {
       downloadStore.updateTaskStatus(task.id, 'processing')
     }
-    // 文件夹任务已开始处理，释放锁并处理下一个任务
+    // 释放锁
     isFetchingLink.value = false
-    processQueue()
-    // 并行启动多个子文件下载
+    // 启动子文件下载（每个文件夹最多同时下载1个文件）
     await fillFolderDownloadSlots(task)
+    // 处理队列中的其他任务
+    processQueue()
   }
 
-  // 填充文件夹的下载槽位（并行下载）
+  // 启动文件夹的下一个子文件下载（每个文件夹最多同时下载1个文件）
   async function fillFolderDownloadSlots(task: DownloadTask) {
     if (!task.isFolder || !task.subFiles) return
 
@@ -334,19 +348,16 @@ export function useDownloadManager() {
     const currentTask = downloadStore.downloadTasks.find(t => t.id === task.id)
     if (!currentTask || currentTask.status === 'paused' || currentTask.status === 'error') return
 
-    // 计算可以启动的数量
-    const activeCount = getFolderActiveCount(task.id)
-    const slotsAvailable = MAX_FOLDER_CONCURRENT - activeCount
+    // 检查全局并发数限制
+    if (getTotalActiveDownloads() >= MAX_CONCURRENT_DOWNLOADS) return
 
-    if (slotsAvailable <= 0) return
+    // 检查该文件夹是否已有活跃下载（每个文件夹最多1个）
+    if (getFolderActiveCount(task.id) >= 1) return
 
-    // 启动多个子文件下载
-    for (let i = 0; i < slotsAvailable; i++) {
-      const nextSubFile = downloadStore.getNextWaitingSubFile(task.id)
-      if (!nextSubFile) break
-
-      // 不等待，直接启动（并行）
-      startSubFileDownload(task, nextSubFile.index, nextSubFile.subFile)
+    // 启动下一个子文件下载
+    const nextSubFile = downloadStore.getNextWaitingSubFile(task.id)
+    if (nextSubFile) {
+      await startSubFileDownload(task, nextSubFile.index, nextSubFile.subFile)
     }
   }
 
