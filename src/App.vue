@@ -48,6 +48,23 @@
             <span>设置</span>
           </router-link>
         </nav>
+
+        <!-- 线路信息 -->
+        <div
+          class="route-status"
+          @click="testRoute"
+          :title="isTestingRoute ? '测试中...' : '点击测试延迟'"
+        >
+          <template v-if="currentRoute">
+            <span class="route-name">{{ currentRoute.name }}</span>
+            <span class="route-latency" :class="{ testing: isTestingRoute }">
+              {{ isTestingRoute ? '...' : currentRoute.latency + 'ms' }}
+            </span>
+          </template>
+          <template v-else>
+            <span class="route-loading">...</span>
+          </template>
+        </div>
       </aside>
 
       <!-- 页面内容 -->
@@ -78,6 +95,16 @@ const hasActiveDownload = computed(() => {
     t.status === 'downloading' || t.status === 'waiting' || t.status === 'processing' || t.status === 'creating'
   )
 })
+
+// 线路信息
+const currentRoute = computed(() => settingsStore.currentRoute)
+const isTestingRoute = computed(() => settingsStore.isTestingRoute)
+
+function testRoute() {
+  if (!isTestingRoute.value) {
+    settingsStore.testCurrentRoute()
+  }
+}
 
 onMounted(() => {
   // 初始化设置
@@ -178,6 +205,7 @@ const handleClose = () => {
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: space-between;
 }
 
 .nav-menu {
@@ -264,5 +292,41 @@ const handleClose = () => {
 .fade-enter-from,
 .fade-leave-to {
   opacity: 0;
+}
+
+.route-status {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 4px;
+  margin: 0 8px 4px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.15s;
+
+  &:hover {
+    background: $bg-hover;
+  }
+}
+
+.route-name {
+  font-size: 11px;
+  color: $text-secondary;
+}
+
+.route-latency {
+  font-size: 11px;
+  color: #10b981;
+  font-weight: 500;
+
+  &.testing {
+    color: $text-muted;
+  }
+}
+
+.route-loading {
+  font-size: 11px;
+  color: $text-muted;
 }
 </style>
