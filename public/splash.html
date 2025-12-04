@@ -230,10 +230,12 @@
 
         // 完成
         addLog('连接下载器...');
-        await new Promise(r => setTimeout(r, 500));
-        addLog('初始化完成', 'success');
-        await new Promise(r => setTimeout(r, 500));
-        fadeOutAndProceed();
+        setTimeout(() => {
+          addLog('初始化完成', 'success');
+          setTimeout(() => {
+            fadeOutAndProceed();
+          }, 500);
+        }, 500);
       } catch (error) {
         addLog('初始化失败，10秒后自动退出', 'error');
         startCountdown(10, fadeOutAndClose);
