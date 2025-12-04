@@ -166,8 +166,6 @@ export class Aria2Client extends EventEmitter {
       '--console-log-level=warn',
       '--summary-interval=0',
       '--disk-cache=64M',
-      '--async-dns=true',
-      '--async-dns-server=119.29.29.29',
     ]
 
     return new Promise((resolve, reject) => {
@@ -295,6 +293,27 @@ export class Aria2Client extends EventEmitter {
     await this.sendRequest('shutdown')
   }
 
+  // 自定义域名到 IP 的映射
+  private readonly hostMapping: Record<string, string> = {
+    'allall02.baidupcs.com': '117.34.84.8'
+  }
+
+  // 处理 URL，将域名替换为 IP 并返回原始 Host
+  private resolveUrl(url: string): { url: string; host: string | null } {
+    try {
+      const urlObj = new URL(url)
+      const mappedIp = this.hostMapping[urlObj.hostname]
+      if (mappedIp) {
+        const originalHost = urlObj.hostname
+        urlObj.hostname = mappedIp
+        return { url: urlObj.toString(), host: originalHost }
+      }
+    } catch {
+      // URL 解析失败，返回原始 URL
+    }
+    return { url, host: null }
+  }
+
   // 添加下载任务
   async addUri(
     taskId: string,
@@ -306,6 +325,9 @@ export class Aria2Client extends EventEmitter {
       headers?: Record<string, string>
     }
   ): Promise<string> {
+    // 处理域名到 IP 的映射
+    const { url: resolvedUrl, host: originalHost } = this.resolveUrl(url)
+
     const aria2Options: Record<string, string> = {
       dir: options.dir,
       out: options.out,
@@ -315,15 +337,25 @@ export class Aria2Client extends EventEmitter {
       aria2Options['user-agent'] = options.userAgent
     }
 
-    if (options.headers) {
-      const headerList = Object.entries(options.headers)
-        .map(([k, v]) => `${k}: ${v}`)
-      if (headerList.length > 0) {
-        aria2Options['header'] = headerList.join('\n')
-      }
+    // 构建 header 列表
+    const headerList: string[] = []
+
+    // 如果做了域名映射，添加 Host header
+    if (originalHost) {
+      headerList.push(`Host: ${originalHost}`)
     }
 
-    const gid = await this.sendRequest('addUri', [[url], aria2Options])
+    if (options.headers) {
+      Object.entries(options.headers).forEach(([k, v]) => {
+        headerList.push(`${k}: ${v}`)
+      })
+    }
+
+    if (headerList.length > 0) {
+      aria2Options['header'] = headerList.join('\n')
+    }
+
+    const gid = await this.sendRequest('addUri', [[resolvedUrl], aria2Options])
     this.taskMap.set(taskId, gid)
     this.gidMap.set(gid, taskId)
     return gid
