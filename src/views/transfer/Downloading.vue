@@ -294,20 +294,36 @@ function resumeTask(id: string) {
 async function deleteTask(id: string) {
   const task = tasks.value.find(t => t.id === id)
   if (task) {
-    // 如果正在下载，先取消
-    if (task.status === 'downloading' || task.status === 'paused') {
+    // 如果是文件夹任务，需要取消所有子文件下载并清理 aria2 记录
+    if (task.isFolder && task.subFiles) {
+      for (let i = 0; i < task.subFiles.length; i++) {
+        const subFile = task.subFiles[i]
+        const subFileDownloadId = `${task.id}-sub-${i}`
+        if (subFile.status === 'downloading' || subFile.status === 'paused' || subFile.status === 'creating' || subFile.status === 'processing') {
+          try {
+            await window.electronAPI?.cancelDownload(subFileDownloadId)
+          } catch (e) {
+            // ignore
+          }
+        }
+        // 清理 aria2 记录
+        window.electronAPI?.cleanupDownload(subFileDownloadId)
+      }
+      // 清理 folderDownloadMap 中的映射
+      downloadManager.cleanupFolderDownloadMap(id)
+    } else if (task.status === 'downloading' || task.status === 'paused' || task.status === 'creating' || task.status === 'processing') {
+      // 单文件任务：取消下载并清理
       try {
         await window.electronAPI?.cancelDownload(id)
       } catch (e) {
         // ignore
       }
-      task.error = '已取消'
-      downloadStore.moveToCompleted(task, false)
-    } else {
-      // 等待中的直接删除
-      downloadStore.removeFromDownload([id])
+      // 清理 aria2 记录
+      window.electronAPI?.cleanupDownload(id)
     }
-    // 删除/取消后处理等待队列
+    // 直接从下载列表删除，不移动到失败列表
+    downloadStore.removeFromDownload([id])
+    // 删除后处理等待队列
     downloadManager.processQueue()
   }
   selectedIds.value.delete(id)

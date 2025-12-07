@@ -544,6 +544,19 @@ export function useDownloadManager() {
     errorCount.value = 0
   }
 
+  // 清理文件夹任务的下载映射（删除任务时调用）
+  function cleanupFolderDownloadMap(taskId: string) {
+    const toDelete: string[] = []
+    folderDownloadMap.value.forEach((info, downloadId) => {
+      if (info.taskId === taskId) {
+        toDelete.push(downloadId)
+      }
+    })
+    toDelete.forEach(downloadId => {
+      folderDownloadMap.value.delete(downloadId)
+    })
+  }
+
   return {
     errorCount,
     startDownload,
@@ -554,6 +567,7 @@ export function useDownloadManager() {
     cancelTask,
     setupProgressListener,
     removeProgressListener,
-    fillFolderDownloadSlots
+    fillFolderDownloadSlots,
+    cleanupFolderDownloadMap
   }
 }
