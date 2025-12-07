@@ -275,9 +275,10 @@ function checkVersion(): Promise<{ success: boolean; needUpdate?: boolean; error
       res.on('end', () => {
         try {
           const json = JSON.parse(data)
-          if (json.code === 200 && json.data?.version) {
-            const serverVersion = json.data.version
-            if (serverVersion === CLIENT_VERSION) {
+          if (json.code === 200 && json.data?.versions && Array.isArray(json.data.versions)) {
+            // 支持多版本：检查当前版本是否在允许的版本列表中
+            const allowedVersions: string[] = json.data.versions
+            if (allowedVersions.includes(CLIENT_VERSION)) {
               resolve({ success: true })
             } else {
               resolve({ success: false, needUpdate: true })
