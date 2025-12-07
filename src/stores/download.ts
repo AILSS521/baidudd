@@ -22,10 +22,10 @@ export const useDownloadStore = defineStore('download', () => {
   const completedCount = computed(() => completedTasks.value.length)
   const failedCount = computed(() => failedTasks.value.length)
 
-  // 活跃下载数（处理中、正在下载、暂停或创建中的任务）
+  // 活跃下载数（加载中、处理中、正在下载、暂停或创建中的任务）
   const activeDownloadCount = computed(() =>
     downloadTasks.value.filter(t =>
-      t.status === 'processing' || t.status === 'downloading' || t.status === 'paused' || t.status === 'creating'
+      t.status === 'loading' || t.status === 'processing' || t.status === 'downloading' || t.status === 'paused' || t.status === 'creating'
     ).length
   )
 
@@ -142,6 +142,91 @@ export const useDownloadStore = defineStore('download', () => {
     }
 
     downloadTasks.value.push(folderTask)
+  }
+
+  // 添加文件夹任务占位符（加载文件列表时使用）
+  function addFolderTaskPlaceholder(folder: FileItem, downloadBasePath: string): string {
+    // 检查文件夹是否已在队列中
+    const queuedFileIds = getQueuedFileIds()
+    if (queuedFileIds.has(folder.id)) return ''
+
+    // 保存当前会话数据到任务中，避免被新下载编码覆盖
+    const taskSession: TaskSessionData | undefined = sessionData.value ? {
+      code: currentCode.value,
+      session: sessionData.value.session,
+      basePath: basePath.value,
+      currentApiPath: currentPath.value // 保存当前API路径用于后续获取下载链接
+    } : undefined
+
+    const taskId = `${Date.now()}-folder-${folder.id}`
+    const folderTask: DownloadTask = {
+      id: taskId,
+      file: folder,
+      status: 'loading' as TaskStatus, // 加载中状态
+      progress: 0,
+      speed: 0,
+      downloadedSize: 0,
+      totalSize: 0, // 暂时未知
+      createdAt: Date.now(),
+      retryCount: 0,
+      downloadBasePath,
+      isFolder: true,
+      subFiles: [], // 空数组，待加载
+      completedCount: 0,
+      totalCount: 0,
+      currentFileIndex: 0,
+      loadedFileCount: 0, // 已加载的文件数
+      sessionData: taskSession
+    }
+
+    downloadTasks.value.push(folderTask)
+    return taskId
+  }
+
+  // 更新文件夹加载进度（已加载的文件数量）
+  function updateFolderLoadedCount(taskId: string, count: number) {
+    const task = downloadTasks.value.find(t => t.id === taskId)
+    if (task && task.isFolder && task.status === 'loading') {
+      task.loadedFileCount = count
+    }
+  }
+
+  // 完成文件夹加载，设置实际文件列表
+  function finalizeFolderTask(taskId: string, files: FileItem[]): boolean {
+    const task = downloadTasks.value.find(t => t.id === taskId)
+    if (!task || !task.isFolder || task.status !== 'loading') return false
+
+    // 计算总大小
+    const totalSize = files.reduce((sum, f) => sum + f.size, 0)
+
+    // 创建子文件任务列表
+    const subFiles: SubFileTask[] = files.map(file => ({
+      file,
+      status: 'waiting' as TaskStatus,
+      progress: 0,
+      speed: 0,
+      downloadedSize: 0,
+      totalSize: file.size,
+      retryCount: 0
+    }))
+
+    // 更新任务
+    task.status = 'waiting'
+    task.totalSize = totalSize
+    task.subFiles = subFiles
+    task.totalCount = files.length
+    task.loadedFileCount = files.length
+
+    return true
+  }
+
+  // 文件夹加载失败，移动到失败列表
+  function failFolderLoading(taskId: string, error: string) {
+    const task = downloadTasks.value.find(t => t.id === taskId)
+    if (task && task.isFolder && task.status === 'loading') {
+      task.error = error
+      moveToCompleted(task, false)
+    }
   }
 
   // 从下载列表移除任务
@@ -678,6 +763,10 @@ export const useDownloadStore = defineStore('download', () => {
     setSessionData,
     addToDownload,
     addFolderToDownload,
+    addFolderTaskPlaceholder,
+    updateFolderLoadedCount,
+    finalizeFolderTask,
+    failFolderLoading,
     removeFromDownload,
     moveToCompleted,
     updateTaskStatus,

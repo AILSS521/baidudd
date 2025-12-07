@@ -626,31 +626,30 @@ function downloadSingle(file: FileItem) {
 
 // 下载文件夹（作为整体任务）
 async function downloadFolder(folder: FileItem) {
-  // 获取文件夹内所有文件（递归）
+  // 以被下载文件夹的父目录为基础路径，这样下载目录中会创建文件夹本身
+  const folderParentPath = folder.path.substring(0, folder.path.lastIndexOf('/')) || '/'
+
+  // 先添加占位任务（状态为 loading）
+  const taskId = downloadStore.addFolderTaskPlaceholder(folder, folderParentPath)
+  if (!taskId) {
+    // 文件夹已在队列中
+    return
+  }
+
+  // 异步加载文件列表
   try {
-    loading.value = true
-    const allFiles = await getAllFilesInFolder(folder.path)
+    const allFiles = await getAllFilesInFolderWithProgress(folder.path, taskId)
     if (allFiles.length > 0) {
-      // 以被下载文件夹的父目录为基础路径，这样下载目录中会创建文件夹本身
-      // 例如：点击下载 /网盘/A 文件夹，basePath 设为 /网盘
-      // 文件 /网盘/A/B/1.txt 的相对路径就是 A/B/1.txt
-      const folderParentPath = folder.path.substring(0, folder.path.lastIndexOf('/')) || '/'
-      // 添加文件夹任务（作为整体显示）
-      downloadStore.addFolderToDownload(folder, allFiles, folderParentPath)
+      // 完成加载，设置实际文件列表
+      downloadStore.finalizeFolderTask(taskId, allFiles)
       downloadManager.startDownload()
     } else {
-      errorMessage.value = '文件夹内没有可下载的文件'
-      setTimeout(() => {
-        errorMessage.value = ''
-      }, 3000)
+      // 文件夹内没有文件，标记为失败
+      downloadStore.failFolderLoading(taskId, '文件夹内没有可下载的文件')
     }
   } catch (error: any) {
-    errorMessage.value = error.message || '获取文件夹内容失败'
-    setTimeout(() => {
-      errorMessage.value = ''
-    }, 3000)
-  } finally {
-    loading.value = false
+    // 加载失败，标记为失败
+    downloadStore.failFolderLoading(taskId, error.message || '获取文件夹内容失败')
   }
 }
 
@@ -672,6 +671,29 @@ async function getAllFilesInFolder(folderPath: string): Promise<FileItem[]> {
   return files
 }
 
+// 递归获取文件夹内所有文件（带进度更新）
+async function getAllFilesInFolderWithProgress(folderPath: string, taskId: string): Promise<FileItem[]> {
+  const allFiles: FileItem[] = []
+
+  async function loadRecursive(path: string) {
+    const data = await api.getFileList(code.value.trim(), path)
+
+    for (const item of data.files) {
+      if (item.type === 'folder') {
+        // 递归获取子文件夹内的文件
+        await loadRecursive(item.path)
+      } else {
+        allFiles.push(item)
+        // 更新已加载的文件数量
+        downloadStore.updateFolderLoadedCount(taskId, allFiles.length)
+      }
+    }
+  }
+
+  await loadRecursive(folderPath)
+  return allFiles
+}
+
 // 下载选中的文件和文件夹
 async function downloadSelected() {
   const selectedItems = fileList.value.filter(f => selectedIds.value.has(f.id))
@@ -688,32 +710,37 @@ async function downloadSelected() {
     downloadStore.addToDownload(files, downloadBasePath)
   }
 
-  // 处理文件夹（需要异步获取内部文件）
-  if (folders.length > 0) {
-    loading.value = true
-    try {
-      for (const folder of folders) {
-        const allFiles = await getAllFilesInFolder(folder.path)
-        if (allFiles.length > 0) {
-          const folderParentPath = folder.path.substring(0, folder.path.lastIndexOf('/')) || '/'
-          downloadStore.addFolderToDownload(folder, allFiles, folderParentPath)
-        }
-      }
-    } catch (error: any) {
-      errorMessage.value = error.message || '获取文件夹内容失败'
-      setTimeout(() => {
-        errorMessage.value = ''
-      }, 3000)
-    } finally {
-      loading.value = false
+  // 处理文件夹（使用占位任务 + 异步加载方式）
+  const folderTaskIds: { taskId: string; folder: FileItem }[] = []
+  for (const folder of folders) {
+    const folderParentPath = folder.path.substring(0, folder.path.lastIndexOf('/')) || '/'
+    const taskId = downloadStore.addFolderTaskPlaceholder(folder, folderParentPath)
+    if (taskId) {
+      folderTaskIds.push({ taskId, folder })
     }
   }
 
-  // 有任务添加则开始下载
-  if (files.length > 0 || folders.length > 0) {
+  // 清除勾选状态
+  selectedIds.value.clear()
+
+  // 有任务添加则开始下载（普通文件可以先开始）
+  if (files.length > 0) {
     downloadManager.startDownload()
-    // 清除勾选状态
-    selectedIds.value.clear()
+  }
+
+  // 异步加载所有文件夹的内容
+  for (const { taskId, folder } of folderTaskIds) {
+    try {
+      const allFiles = await getAllFilesInFolderWithProgress(folder.path, taskId)
+      if (allFiles.length > 0) {
+        downloadStore.finalizeFolderTask(taskId, allFiles)
+        downloadManager.startDownload()
+      } else {
+        downloadStore.failFolderLoading(taskId, '文件夹内没有可下载的文件')
+      }
+    } catch (error: any) {
+      downloadStore.failFolderLoading(taskId, error.message || '获取文件夹内容失败')
+    }
   }
 }
 

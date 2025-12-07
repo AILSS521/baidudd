@@ -145,8 +145,18 @@
           </template>
         </div>
         <div class="col-status">
+          <!-- 加载文件列表中 - 显示转圈动画和已加载数量 -->
+          <template v-if="task.status === 'loading'">
+            <div class="status-loading">
+              <div class="loading-spinner"></div>
+              <div class="loading-info">
+                <span class="loading-text">加载文件列表中...</span>
+                <span class="loading-count" v-if="task.loadedFileCount">已加载文件 {{ task.loadedFileCount }}</span>
+              </div>
+            </div>
+          </template>
           <!-- 下载中/已暂停且有进度 - 显示进度信息 -->
-          <template v-if="task.status === 'downloading' || (task.status === 'paused' && task.progress > 0)">
+          <template v-else-if="task.status === 'downloading' || (task.status === 'paused' && task.progress > 0)">
             <div class="status-progress">
               <div class="progress-info">
                 <!-- 文件夹显示剩余数量，普通文件显示百分比 -->
@@ -235,6 +245,7 @@ function toggleSelect(id: string) {
 
 function getStatusText(status: TaskStatus): string {
   const statusMap: Record<TaskStatus, string> = {
+    loading: '加载文件列表中',
     waiting: '等待中',
     processing: '处理中',
     creating: '创建文件中',
@@ -558,10 +569,49 @@ onMounted(() => {
   transition: width 0.3s;
 }
 
+// 加载状态
+.status-loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.loading-spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid $border-color;
+  border-top-color: $primary-color;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.loading-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.loading-text {
+  font-size: 13px;
+  color: $primary-color;
+}
+
+.loading-count {
+  font-size: 12px;
+  color: $text-secondary;
+}
+
 // 状态文字
 .status-text {
   font-size: 13px;
 
+  &.loading { color: $primary-color; }
   &.waiting { color: $text-secondary; }
   &.processing { color: $primary-color; }
   &.creating { color: $primary-color; }

@@ -9,6 +9,7 @@ export interface FileItem {
 }
 
 // 任务状态
+// loading: 加载文件列表中（文件夹任务专用）
 // waiting: 等待中
 // processing: 处理中（正在获取下载链接）
 // creating: 创建文件中（正在预创建文件）
@@ -16,7 +17,7 @@ export interface FileItem {
 // paused: 已暂停
 // completed: 已完成
 // error: 异常
-export type TaskStatus = 'waiting' | 'processing' | 'creating' | 'downloading' | 'paused' | 'completed' | 'error'
+export type TaskStatus = 'loading' | 'waiting' | 'processing' | 'creating' | 'downloading' | 'paused' | 'completed' | 'error'
 
 // 子文件任务（文件夹内的单个文件）
 export interface SubFileTask {
@@ -68,6 +69,7 @@ export interface DownloadTask {
   totalCount?: number // 总文件数量
   currentFileIndex?: number // 当前正在下载的文件索引
   currentFileName?: string // 当前正在下载的文件名
+  loadedFileCount?: number // 已加载的文件数量（加载文件列表时使用）
 }
 
 // API响应

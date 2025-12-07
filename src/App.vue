@@ -89,10 +89,10 @@ const settingsStore = useSettingsStore()
 const downloadStore = useDownloadStore()
 const downloadManager = useDownloadManager()
 
-// 是否有活跃的下载任务（正在下载或等待中）
+// 是否有活跃的下载任务（加载中、正在下载或等待中）
 const hasActiveDownload = computed(() => {
   return downloadStore.downloadTasks.some(t =>
-    t.status === 'downloading' || t.status === 'waiting' || t.status === 'processing' || t.status === 'creating'
+    t.status === 'loading' || t.status === 'downloading' || t.status === 'waiting' || t.status === 'processing' || t.status === 'creating'
   )
 })
 
