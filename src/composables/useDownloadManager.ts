@@ -99,14 +99,22 @@ export function useDownloadManager() {
           }
         } else if (progress.status === 'paused') {
           // 文件夹暂停时，子文件也标记暂停
-          // 但如果子文件是 waiting/downloading 状态（正在恢复中），不要覆盖
-          if (task.subFiles && task.subFiles[folderInfo.fileIndex]) {
-            const subFile = task.subFiles[folderInfo.fileIndex]
-            if (subFile.status !== 'waiting' && subFile.status !== 'downloading') {
-              subFile.status = 'paused'
-              // 暂停后释放并发位置，处理等待队列
-              processQueue()
+          // 但如果任务已经恢复（waiting/downloading/processing），不要覆盖
+          // 同时检查文件夹任务本身的状态，防止竞态条件
+          if (task.status !== 'waiting' && task.status !== 'downloading' && task.status !== 'processing') {
+            if (task.subFiles && task.subFiles[folderInfo.fileIndex]) {
+              const subFile = task.subFiles[folderInfo.fileIndex]
+              if (subFile.status !== 'waiting' && subFile.status !== 'downloading' && subFile.status !== 'processing') {
+                subFile.status = 'paused'
+              }
             }
+            // 清理该子文件的映射，释放并发位置
+            folderDownloadMap.value.delete(progress.taskId)
+            // 暂停后处理等待队列
+            processQueue()
+          } else {
+            // 任务已恢复，但收到了延迟的暂停回调，清理旧映射即可
+            folderDownloadMap.value.delete(progress.taskId)
           }
         }
       } else {
@@ -173,17 +181,6 @@ export function useDownloadManager() {
     })
   }
 
-  // 获取文件夹当前活跃的子文件下载数量
-  function getFolderActiveCount(taskId: string): number {
-    let count = 0
-    folderDownloadMap.value.forEach((info) => {
-      if (info.taskId === taskId) {
-        count++
-      }
-    })
-    return count
-  }
-
   // 获取当前总活跃下载数（单文件 + 文件夹子文件）
   function getTotalActiveDownloads(): number {
     // 统计正在下载的单文件
@@ -191,8 +188,18 @@ export function useDownloadManager() {
       !t.isFolder && (t.status === 'downloading' || t.status === 'creating' || t.status === 'processing')
     ).length
 
-    // 统计文件夹子文件下载数（通过 folderDownloadMap）
-    const folderSubFileDownloads = folderDownloadMap.value.size
+    // 统计文件夹子文件下载数（基于实际子文件状态，而不是 folderDownloadMap）
+    // 这样可以避免快速暂停/恢复时旧映射残留导致的计数错误
+    let folderSubFileDownloads = 0
+    downloadStore.downloadTasks.forEach(t => {
+      if (t.isFolder && t.subFiles) {
+        for (const sf of t.subFiles) {
+          if (sf.status === 'downloading' || sf.status === 'creating' || sf.status === 'processing') {
+            folderSubFileDownloads++
+          }
+        }
+      }
+    })
 
     return singleFileDownloads + folderSubFileDownloads
   }
@@ -375,8 +382,32 @@ export function useDownloadManager() {
     // 检查全局并发数限制
     if (getTotalActiveDownloads() >= settingsStore.maxConcurrentDownloads) return
 
-    // 检查该文件夹是否已有活跃下载（每个文件夹最多1个）
-    if (getFolderActiveCount(task.id) >= 1) return
+    // 获取当前活跃下载数（只统计状态为 downloading/creating/processing 的子文件）
+    // 注意：不能只看 folderDownloadMap，因为可能有延迟的 paused 回调还没清理映射
+    let realActiveCount = 0
+    if (currentTask.subFiles) {
+      for (const sf of currentTask.subFiles) {
+        if (sf.status === 'downloading' || sf.status === 'creating' || sf.status === 'processing') {
+          realActiveCount++
+        }
+      }
+    }
+
+    // 如果有真正活跃的下载，不启动新的
+    if (realActiveCount >= 1) return
+
+    // 清理该文件夹所有无效的映射（子文件状态不是 downloading/creating/processing 的）
+    // 这样可以修复快速暂停/恢复时旧映射残留的问题
+    const toCleanup: string[] = []
+    folderDownloadMap.value.forEach((info, downloadId) => {
+      if (info.taskId === task.id) {
+        const subFile = currentTask.subFiles?.[info.fileIndex]
+        if (!subFile || (subFile.status !== 'downloading' && subFile.status !== 'creating' && subFile.status !== 'processing')) {
+          toCleanup.push(downloadId)
+        }
+      }
+    })
+    toCleanup.forEach(downloadId => folderDownloadMap.value.delete(downloadId))
 
     // 启动下一个子文件下载
     const nextSubFile = downloadStore.getNextWaitingSubFile(task.id)
