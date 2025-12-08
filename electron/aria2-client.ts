@@ -652,10 +652,15 @@ export class Aria2Client extends EventEmitter {
   // 获取任务状态
   async tellStatus(taskId: string): Promise<Aria2TaskStatus | null> {
     const gid = this.taskMap.get(taskId)
-    if (!gid) return null
+    console.log(`[aria2] tellStatus called: taskId=${taskId}, gid=${gid}, taskMapSize=${this.taskMap.size}`)
+    if (!gid) {
+      console.log(`[aria2] tellStatus: 没有找到 gid，taskMap 内容:`, Array.from(this.taskMap.entries()))
+      return null
+    }
 
     try {
       const result = await this.sendRequest('tellStatus', [gid])
+      console.log(`[aria2] tellStatus 结果: taskId=${taskId}, status=${result.status}`)
       return {
         gid: result.gid,
         status: result.status,
@@ -666,7 +671,8 @@ export class Aria2Client extends EventEmitter {
         errorMessage: result.errorMessage,
         files: result.files
       }
-    } catch {
+    } catch (e) {
+      console.log(`[aria2] tellStatus 异常: taskId=${taskId}, error=${e}`)
       return null
     }
   }

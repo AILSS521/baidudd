@@ -8,6 +8,33 @@ import path from 'path-browserify'
 const MAX_RETRY = 3
 const RETRY_DELAY = 5000
 
+// 调试日志函数
+const debugLogs: string[] = []
+function debugLog(message: string, data?: any) {
+  const timestamp = new Date().toISOString()
+  const logEntry = data
+    ? `[${timestamp}] ${message}: ${JSON.stringify(data, null, 2)}`
+    : `[${timestamp}] ${message}`
+  debugLogs.push(logEntry)
+  console.log('[DownloadManager]', logEntry)
+  // 保存到本地存储，方便查看
+  try {
+    localStorage.setItem('downloadManagerLogs', debugLogs.slice(-200).join('\n'))
+  } catch (e) {
+    // ignore
+  }
+}
+
+// 导出日志供外部查看
+export function getDownloadManagerLogs(): string[] {
+  return debugLogs
+}
+
+export function clearDownloadManagerLogs() {
+  debugLogs.length = 0
+  localStorage.removeItem('downloadManagerLogs')
+}
+
 // 获取用于API请求的目录路径
 // 规则：
 // - 如果文件在分享根目录下（fileDir === basePath），返回 "/"
@@ -51,6 +78,16 @@ export function useDownloadManager() {
       // 检查是否是文件夹子文件的下载
       const folderInfo = folderDownloadMap.value.get(progress.taskId)
 
+      // 对关键状态变化记录日志
+      if (progress.status === 'completed' || progress.status === 'error' || progress.status === 'paused') {
+        debugLog('收到进度回调', {
+          taskId: progress.taskId,
+          status: progress.status,
+          error: progress.error,
+          isFolderSubFile: !!folderInfo
+        })
+      }
+
       if (folderInfo) {
         // 这是文件夹子文件的下载
         const task = downloadStore.downloadTasks.find(t => t.id === folderInfo.taskId)
@@ -68,6 +105,11 @@ export function useDownloadManager() {
             progress.downloadedSize
           )
         } else if (progress.status === 'completed') {
+          debugLog('子文件下载完成', {
+            taskId: progress.taskId,
+            folderTaskId: folderInfo.taskId,
+            fileIndex: folderInfo.fileIndex
+          })
           // 清理 aria2 记录
           window.electronAPI?.cleanupDownload(progress.taskId)
           downloadStore.markFolderSubFileCompleted(folderInfo.taskId, folderInfo.fileIndex, true)
@@ -89,6 +131,12 @@ export function useDownloadManager() {
           // 处理队列中的其他任务（释放了一个并发位置）
           processQueue()
         } else if (progress.status === 'error') {
+          debugLog('子文件下载出错', {
+            taskId: progress.taskId,
+            error: progress.error,
+            folderTaskId: folderInfo.taskId,
+            fileIndex: folderInfo.fileIndex
+          })
           // 清理 aria2 记录
           window.electronAPI?.cleanupDownload(progress.taskId)
           folderDownloadMap.value.delete(progress.taskId)
@@ -98,6 +146,11 @@ export function useDownloadManager() {
             processQueue()
           }
         } else if (progress.status === 'paused') {
+          debugLog('收到暂停回调', {
+            taskId: progress.taskId,
+            taskStatus: task.status,
+            subFileStatus: task.subFiles?.[folderInfo.fileIndex]?.status
+          })
           // 文件夹暂停时，子文件也标记暂停
           // 但如果任务已经恢复（waiting/downloading/processing），不要覆盖
           // 同时检查文件夹任务本身的状态，防止竞态条件
@@ -432,14 +485,29 @@ export function useDownloadManager() {
 
   // 启动单个子文件下载
   async function startSubFileDownload(task: DownloadTask, index: number, subFile: SubFileTask) {
+    debugLog('startSubFileDownload 开始', {
+      taskId: task.id,
+      index,
+      fileName: subFile.file.name,
+      subFileStatus: subFile.status,
+      hasDownloadUrl: !!subFile.downloadUrl,
+      hasLocalPath: !!subFile.localPath
+    })
+
     if (!task.isFolder || !task.subFiles) return
 
     // 检查任务是否还在下载列表中
     const currentTask = downloadStore.downloadTasks.find(t => t.id === task.id)
-    if (!currentTask) return
+    if (!currentTask) {
+      debugLog('startSubFileDownload: 任务不在下载列表中，退出')
+      return
+    }
 
     // 检查任务是否被暂停或已失败
-    if (currentTask.status === 'paused' || currentTask.status === 'error') return
+    if (currentTask.status === 'paused' || currentTask.status === 'error') {
+      debugLog('startSubFileDownload: 任务已暂停或失败，退出', { status: currentTask.status })
+      return
+    }
 
     // 更新当前正在下载的文件名（显示最新启动的）
     task.currentFileName = subFile.file.name
@@ -447,14 +515,25 @@ export function useDownloadManager() {
 
     // 生成子文件的下载 ID
     const subFileDownloadId = `${task.id}-sub-${index}`
+    debugLog('生成子文件下载ID', { subFileDownloadId })
 
     // 如果子文件已经有下载链接（暂停后恢复的情况），先检查 aria2 任务状态
     if (subFile.downloadUrl && subFile.localPath) {
+      debugLog('子文件有下载链接，检查 aria2 状态', {
+        downloadUrl: subFile.downloadUrl?.substring(0, 50) + '...',
+        localPath: subFile.localPath
+      })
+
       // 先查询 aria2 中该任务的实际状态，防止重复下载已完成的文件
       const statusResult = await window.electronAPI?.getDownloadStatus(subFileDownloadId)
+      debugLog('aria2 状态查询结果', statusResult)
+
       if (statusResult?.success && statusResult.status) {
         const aria2Status = statusResult.status.status
+        debugLog('aria2 任务状态', { aria2Status })
+
         if (aria2Status === 'complete') {
+          debugLog('aria2 显示已完成，直接标记成功')
           // aria2 显示已完成，直接标记成功
           downloadStore.markFolderSubFileCompleted(task.id, index, true)
           // 检查文件夹是否全部完成
@@ -471,8 +550,11 @@ export function useDownloadManager() {
           processQueue()
           return
         }
+      } else {
+        debugLog('aria2 状态查询失败或无状态，将尝试恢复下载')
       }
 
+      debugLog('准备恢复下载', { subFileDownloadId })
       downloadStore.updateFolderSubFileStatus(task.id, index, 'downloading')
       if (currentTask.status !== 'downloading') {
         downloadStore.updateTaskStatus(task.id, 'downloading')
@@ -480,9 +562,12 @@ export function useDownloadManager() {
       // 重新注册映射
       folderDownloadMap.value.set(subFileDownloadId, { taskId: task.id, fileIndex: index })
       // 恢复下载
-      window.electronAPI?.resumeDownload(subFileDownloadId)
+      const resumeResult = await window.electronAPI?.resumeDownload(subFileDownloadId)
+      debugLog('恢复下载结果', resumeResult)
       return
     }
+
+    debugLog('子文件无下载链接，需要获取新链接')
 
     downloadStore.updateFolderSubFileStatus(task.id, index, 'processing')
 
