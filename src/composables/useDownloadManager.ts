@@ -66,14 +66,29 @@ export function useDownloadManager() {
       // 检查是否是文件夹子文件的下载
       const folderInfo = folderDownloadMap.value.get(progress.taskId)
 
+      // 检查 taskId 格式判断是否是子文件下载（即使不在 folderDownloadMap 中）
+      const isSubFileTaskId = progress.taskId.includes('-sub-')
+
       // 对关键状态变化记录日志
       if (progress.status === 'completed' || progress.status === 'error' || progress.status === 'paused') {
         debugLog('收到进度回调', {
           taskId: progress.taskId,
           status: progress.status,
           error: progress.error,
-          isFolderSubFile: !!folderInfo
+          isFolderSubFile: !!folderInfo,
+          isSubFileTaskId
         })
+      }
+
+      // 如果是子文件格式的 taskId 但不在 folderDownloadMap 中，说明映射已被清理
+      // 这种情况下不应该当作普通文件处理，直接忽略
+      if (!folderInfo && isSubFileTaskId) {
+        // 对于 completed/error 状态，确保清理 aria2 记录
+        if (progress.status === 'completed' || progress.status === 'error') {
+          window.electronAPI?.cleanupDownload(progress.taskId)
+        }
+        // 对于 paused 状态，直接忽略（映射已清理，不需要处理）
+        return
       }
 
       if (folderInfo) {
@@ -455,11 +470,15 @@ export function useDownloadManager() {
     // 如果有真正活跃的下载，不启动新的
     if (realActiveCount >= 1) return
 
-    // 清理该文件夹所有无效的映射（子文件状态不是 downloading/creating/processing 的）
-    // 这样可以修复快速暂停/恢复时旧映射残留的问题
+    // 清理该文件夹所有无效的映射（子文件状态不是活跃状态且不在同步锁中）
+    // 注意：如果 downloadId 还在同步锁中，说明 startSubFileDownload 正在处理，不要清理
     const toCleanup: string[] = []
     folderDownloadMap.value.forEach((info, downloadId) => {
       if (info.taskId === task.id) {
+        // 如果还在同步锁中，说明正在处理，不要清理
+        if (subFileProcessingLock.has(downloadId)) {
+          return
+        }
         const subFile = currentTask.subFiles?.[info.fileIndex]
         if (!subFile || (subFile.status !== 'downloading' && subFile.status !== 'creating' && subFile.status !== 'processing')) {
           toCleanup.push(downloadId)
@@ -683,10 +702,15 @@ export function useDownloadManager() {
       // 再次检查任务状态（异步操作前）
       const taskBeforeApi = downloadStore.downloadTasks.find(t => t.id === task.id)
       if (!taskBeforeApi || taskBeforeApi.status === 'paused' || taskBeforeApi.status === 'error') {
-        // 清理映射、同步锁并恢复子文件状态，以便下次恢复时能找到
+        // 任务已暂停或失败，恢复子文件状态
+        // 这里还没有开始下载，可以安全地清理映射和锁
         folderDownloadMap.value.delete(subFileDownloadId)
         subFileProcessingLock.delete(subFileDownloadId)
         downloadStore.updateFolderSubFileStatus(task.id, index, 'waiting')
+        debugLog('获取链接前任务已暂停/失败，清理映射', {
+          taskId: task.id,
+          taskStatus: taskBeforeApi?.status
+        })
         return
       }
 
@@ -704,7 +728,12 @@ export function useDownloadManager() {
       // 获取链接后再次检查任务状态
       const taskAfterApi = downloadStore.downloadTasks.find(t => t.id === task.id)
       if (!taskAfterApi || taskAfterApi.status === 'paused' || taskAfterApi.status === 'error') {
-        // 清理映射、同步锁并恢复子文件状态，以便下次恢复时能找到
+        // 任务已暂停或失败，清理映射和锁，恢复子文件状态
+        // 注意：即使 aria2 可能收到回调，进度回调处理器会通过 taskId 格式识别并忽略
+        debugLog('获取链接后任务已暂停/失败，清理映射', {
+          taskId: task.id,
+          taskStatus: taskAfterApi?.status
+        })
         folderDownloadMap.value.delete(subFileDownloadId)
         subFileProcessingLock.delete(subFileDownloadId)
         downloadStore.updateFolderSubFileStatus(task.id, index, 'waiting')
