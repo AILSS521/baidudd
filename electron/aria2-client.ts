@@ -5,6 +5,7 @@ import * as path from 'path'
 import * as fs from 'fs'
 import { spawn, ChildProcess } from 'child_process'
 import { app } from 'electron'
+import WebSocket from 'ws'
 
 // aria2 RPC 配置
 const RPC_HOST = '127.0.0.1'
@@ -12,6 +13,11 @@ const RPC_SECRET = 'baidu_download_secret_' + Math.random().toString(36).substri
 const PORT_RANGE_START = 16800
 const PORT_RANGE_END = 16899
 const MAX_PORT_RETRIES = 10
+
+// WebSocket 配置
+const WS_RECONNECT_INTERVAL = 3000  // 重连间隔 3秒
+const WS_MAX_RECONNECT_ATTEMPTS = 10  // 最大重连次数
+const PROGRESS_POLL_INTERVAL = 1500  // 进度轮询间隔改为1.5秒（状态变化靠WebSocket，这个只管进度）
 
 // aria2 下载状态
 export type Aria2Status = 'active' | 'waiting' | 'paused' | 'error' | 'complete' | 'removed'
@@ -44,7 +50,7 @@ export interface DownloadProgress {
   error?: string
 }
 
-// aria2 RPC 客户端
+// aria2 RPC 客户端（WebSocket + HTTP混合模式）
 export class Aria2Client extends EventEmitter {
   private process: ChildProcess | null = null
   private isReady: boolean = false
@@ -54,6 +60,12 @@ export class Aria2Client extends EventEmitter {
   private progressTimer: NodeJS.Timeout | null = null
   private startPromise: Promise<void> | null = null
   private rpcPort: number = 0
+
+  // WebSocket 相关
+  private ws: WebSocket | null = null
+  private wsReconnectAttempts: number = 0
+  private wsReconnectTimer: NodeJS.Timeout | null = null
+  private pendingRequests: Map<string, { resolve: (value: any) => void; reject: (reason: any) => void }> = new Map()
 
   constructor() {
     super()
@@ -199,6 +211,8 @@ export class Aria2Client extends EventEmitter {
         try {
           await this.getVersion()
           this.isReady = true
+          // 先建立WebSocket连接，再启动进度监控
+          await this.connectWebSocket()
           this.startProgressMonitor()
           resolve()
         } catch {
@@ -214,9 +228,199 @@ export class Aria2Client extends EventEmitter {
     })
   }
 
+  // 建立WebSocket连接
+  private connectWebSocket(): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const wsUrl = `ws://${RPC_HOST}:${this.rpcPort}/jsonrpc`
+      console.log(`[aria2] 建立WebSocket连接: ${wsUrl}`)
+
+      this.ws = new WebSocket(wsUrl)
+
+      this.ws.on('open', () => {
+        console.log('[aria2] WebSocket连接成功，事件驱动模式启用！')
+        this.wsReconnectAttempts = 0
+        resolve()
+      })
+
+      this.ws.on('message', (data: WebSocket.Data) => {
+        this.handleWebSocketMessage(data)
+      })
+
+      this.ws.on('close', () => {
+        console.log('[aria2] WebSocket连接关闭')
+        this.scheduleReconnect()
+      })
+
+      this.ws.on('error', (err) => {
+        console.error('[aria2] WebSocket错误:', err.message)
+        // 第一次连接失败时reject，重连时不reject
+        if (this.wsReconnectAttempts === 0) {
+          reject(err)
+        }
+      })
+
+      // 5秒超时
+      setTimeout(() => {
+        if (this.ws?.readyState !== WebSocket.OPEN) {
+          reject(new Error('WebSocket连接超时'))
+        }
+      }, 5000)
+    })
+  }
+
+  // 处理WebSocket消息
+  private handleWebSocketMessage(data: WebSocket.Data): void {
+    try {
+      const message = JSON.parse(data.toString())
+
+      // 处理RPC响应
+      if (message.id && this.pendingRequests.has(message.id)) {
+        const { resolve, reject } = this.pendingRequests.get(message.id)!
+        this.pendingRequests.delete(message.id)
+
+        if (message.error) {
+          reject(new Error(message.error.message || 'RPC error'))
+        } else {
+          resolve(message.result)
+        }
+        return
+      }
+
+      // 处理aria2事件通知（这才是WebSocket的精髓！）
+      if (message.method) {
+        this.handleAria2Event(message.method, message.params)
+      }
+    } catch (e) {
+      console.error('[aria2] 解析WebSocket消息失败:', e)
+    }
+  }
+
+  // 处理aria2事件通知 - 状态变化即时响应！
+  private handleAria2Event(method: string, params: any[]): void {
+    // params[0] 是 { gid: string }
+    const gid = params?.[0]?.gid
+    if (!gid) return
+
+    const taskId = this.gidMap.get(gid)
+    if (!taskId) return
+
+    console.log(`[aria2] 收到事件: ${method}, gid: ${gid}, taskId: ${taskId}`)
+
+    switch (method) {
+      case 'aria2.onDownloadStart':
+        // 下载开始，立即获取状态并通知
+        this.fetchAndEmitProgress(taskId, gid)
+        break
+
+      case 'aria2.onDownloadPause':
+        // 下载暂停
+        this.emitQuickStatus(taskId, gid, 'paused')
+        break
+
+      case 'aria2.onDownloadStop':
+        // 下载停止（用户取消）
+        this.emitQuickStatus(taskId, gid, 'error', '下载已停止')
+        break
+
+      case 'aria2.onDownloadComplete':
+        // 下载完成！这个最重要，立即通知
+        this.emitQuickStatus(taskId, gid, 'completed')
+        // 完成后清理映射
+        setTimeout(() => {
+          this.taskMap.delete(taskId)
+          this.gidMap.delete(gid)
+        }, 1000)
+        break
+
+      case 'aria2.onDownloadError':
+        // 下载出错
+        this.fetchAndEmitProgress(taskId, gid) // 获取详细错误信息
+        break
+
+      case 'aria2.onBtDownloadComplete':
+        // BT下载完成（如果以后支持BT的话）
+        this.emitQuickStatus(taskId, gid, 'completed')
+        break
+    }
+  }
+
+  // 快速发送状态更新（不需要查询aria2）
+  private emitQuickStatus(taskId: string, gid: string, status: DownloadProgress['status'], error?: string): void {
+    const progress: DownloadProgress = {
+      taskId,
+      gid,
+      totalSize: 0,  // 这些值前端会从之前的状态保留
+      downloadedSize: 0,
+      speed: 0,
+      progress: status === 'completed' ? 100 : 0,
+      status,
+      error
+    }
+    this.emit('progress', progress)
+  }
+
+  // 获取详细状态并发送（需要查询aria2获取完整信息）
+  private async fetchAndEmitProgress(taskId: string, gid: string): Promise<void> {
+    try {
+      const result = await this.sendRequest('tellStatus', [gid])
+      if (result) {
+        this.emitProgress({
+          gid: result.gid,
+          status: result.status,
+          totalLength: result.totalLength,
+          completedLength: result.completedLength,
+          downloadSpeed: result.downloadSpeed,
+          errorCode: result.errorCode,
+          errorMessage: result.errorMessage,
+          files: result.files
+        })
+      }
+    } catch (e) {
+      console.error('[aria2] 获取任务状态失败:', e)
+    }
+  }
+
+  // 安排WebSocket重连
+  private scheduleReconnect(): void {
+    if (this.wsReconnectTimer) return
+    if (!this.isReady) return  // aria2进程都没了，重连个锤子
+
+    this.wsReconnectAttempts++
+    if (this.wsReconnectAttempts > WS_MAX_RECONNECT_ATTEMPTS) {
+      console.error('[aria2] WebSocket重连失败次数过多，放弃重连')
+      return
+    }
+
+    console.log(`[aria2] ${WS_RECONNECT_INTERVAL / 1000}秒后尝试第${this.wsReconnectAttempts}次重连...`)
+    this.wsReconnectTimer = setTimeout(async () => {
+      this.wsReconnectTimer = null
+      try {
+        await this.connectWebSocket()
+        console.log('[aria2] WebSocket重连成功！')
+      } catch (e) {
+        console.error('[aria2] WebSocket重连失败:', e)
+        this.scheduleReconnect()
+      }
+    }, WS_RECONNECT_INTERVAL)
+  }
+
+  // 关闭WebSocket连接
+  private closeWebSocket(): void {
+    if (this.wsReconnectTimer) {
+      clearTimeout(this.wsReconnectTimer)
+      this.wsReconnectTimer = null
+    }
+    if (this.ws) {
+      this.ws.close()
+      this.ws = null
+    }
+    this.pendingRequests.clear()
+  }
+
   // 停止 aria2 进程
   async stop(): Promise<void> {
     this.stopProgressMonitor()
+    this.closeWebSocket()  // 先关WebSocket
 
     if (this.process) {
       try {
@@ -228,6 +432,7 @@ export class Aria2Client extends EventEmitter {
       this.process = null
     }
     this.isReady = false
+    this.startPromise = null
     this.taskMap.clear()
     this.gidMap.clear()
   }
@@ -523,13 +728,13 @@ export class Aria2Client extends EventEmitter {
     }
   }
 
-  // 启动进度监控
+  // 启动进度监控（现在只负责更新下载进度数值，状态变化靠WebSocket事件）
   private startProgressMonitor(): void {
     if (this.progressTimer) return
 
     this.progressTimer = setInterval(async () => {
       await this.checkProgress()
-    }, 500) // 每500ms检查一次
+    }, PROGRESS_POLL_INTERVAL) // 1.5秒检查一次进度（状态变化靠WebSocket，这里只更新进度数值）
   }
 
   // 停止进度监控
