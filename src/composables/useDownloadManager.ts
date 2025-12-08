@@ -8,17 +8,6 @@ import path from 'path-browserify'
 const MAX_RETRY = 3
 const RETRY_DELAY = 5000
 
-// 调试日志函数 - 写入到文件
-function debugLog(message: string, data?: any) {
-  const timestamp = new Date().toISOString()
-  const logEntry = data
-    ? `[${timestamp}] ${message}: ${JSON.stringify(data)}`
-    : `[${timestamp}] ${message}`
-  console.log('[DownloadManager]', logEntry)
-  // 写入到文件
-  window.electronAPI?.writeDebugLog(logEntry)
-}
-
 // 获取用于API请求的目录路径
 // 规则：
 // - 如果文件在分享根目录下（fileDir === basePath），返回 "/"
@@ -69,17 +58,6 @@ export function useDownloadManager() {
       // 检查 taskId 格式判断是否是子文件下载（即使不在 folderDownloadMap 中）
       const isSubFileTaskId = progress.taskId.includes('-sub-')
 
-      // 对关键状态变化记录日志
-      if (progress.status === 'completed' || progress.status === 'error' || progress.status === 'paused') {
-        debugLog('收到进度回调', {
-          taskId: progress.taskId,
-          status: progress.status,
-          error: progress.error,
-          isFolderSubFile: !!folderInfo,
-          isSubFileTaskId
-        })
-      }
-
       // 如果是子文件格式的 taskId 但不在 folderDownloadMap 中，说明映射已被清理
       // 这种情况下不应该当作普通文件处理，直接忽略
       if (!folderInfo && isSubFileTaskId) {
@@ -108,11 +86,6 @@ export function useDownloadManager() {
             progress.downloadedSize
           )
         } else if (progress.status === 'completed') {
-          debugLog('子文件下载完成', {
-            taskId: progress.taskId,
-            folderTaskId: folderInfo.taskId,
-            fileIndex: folderInfo.fileIndex
-          })
           // 清理 aria2 记录、映射和同步锁
           window.electronAPI?.cleanupDownload(progress.taskId)
           downloadStore.markFolderSubFileCompleted(folderInfo.taskId, folderInfo.fileIndex, true)
@@ -135,12 +108,6 @@ export function useDownloadManager() {
           // 处理队列中的其他任务（释放了一个并发位置）
           processQueue()
         } else if (progress.status === 'error') {
-          debugLog('子文件下载出错', {
-            taskId: progress.taskId,
-            error: progress.error,
-            folderTaskId: folderInfo.taskId,
-            fileIndex: folderInfo.fileIndex
-          })
           // 清理 aria2 记录、映射和同步锁
           window.electronAPI?.cleanupDownload(progress.taskId)
           folderDownloadMap.value.delete(progress.taskId)
@@ -151,11 +118,6 @@ export function useDownloadManager() {
             processQueue()
           }
         } else if (progress.status === 'paused') {
-          debugLog('收到暂停回调', {
-            taskId: progress.taskId,
-            taskStatus: task.status,
-            subFileStatus: task.subFiles?.[folderInfo.fileIndex]?.status
-          })
           // 文件夹暂停时，子文件也标记暂停
           // 但如果任务已经恢复（waiting/downloading/processing），不要覆盖
           // 同时检查文件夹任务本身的状态，防止竞态条件
@@ -502,20 +464,10 @@ export function useDownloadManager() {
     // 【关键】同步锁检查 - 必须在任何 await 之前执行
     // 使用原子操作：检查 + 加锁在同一个同步代码块中
     if (subFileProcessingLock.has(subFileDownloadId)) {
-      debugLog('startSubFileDownload: 同步锁命中，跳过重复调用', { subFileDownloadId })
       return
     }
     // 立即加锁，阻止后续并行调用
     subFileProcessingLock.add(subFileDownloadId)
-
-    debugLog('startSubFileDownload 开始', {
-      taskId: task.id,
-      index,
-      fileName: subFile.file.name,
-      subFileStatus: subFile.status,
-      hasDownloadUrl: !!subFile.downloadUrl,
-      hasLocalPath: !!subFile.localPath
-    })
 
     if (!task.isFolder || !task.subFiles) {
       subFileProcessingLock.delete(subFileDownloadId)
@@ -525,23 +477,18 @@ export function useDownloadManager() {
     // 检查任务是否还在下载列表中
     const currentTask = downloadStore.downloadTasks.find(t => t.id === task.id)
     if (!currentTask) {
-      debugLog('startSubFileDownload: 任务不在下载列表中，退出')
       subFileProcessingLock.delete(subFileDownloadId)
       return
     }
 
     // 检查任务是否被暂停或已失败
     if (currentTask.status === 'paused' || currentTask.status === 'error') {
-      debugLog('startSubFileDownload: 任务已暂停或失败，退出', { status: currentTask.status })
       subFileProcessingLock.delete(subFileDownloadId)
       return
     }
 
-    debugLog('生成子文件下载ID', { subFileDownloadId })
-
     // 检查是否已经在 folderDownloadMap 中（双重保险）
     if (folderDownloadMap.value.has(subFileDownloadId)) {
-      debugLog('startSubFileDownload: 子文件已在下载中，跳过', { subFileDownloadId })
       subFileProcessingLock.delete(subFileDownloadId)
       return
     }
@@ -549,9 +496,6 @@ export function useDownloadManager() {
     // 检查子文件状态，只处理 waiting 状态的
     const currentSubFile = currentTask.subFiles?.[index]
     if (!currentSubFile || currentSubFile.status !== 'waiting') {
-      debugLog('startSubFileDownload: 子文件状态不是 waiting，跳过', {
-        status: currentSubFile?.status
-      })
       subFileProcessingLock.delete(subFileDownloadId)
       return
     }
@@ -566,21 +510,13 @@ export function useDownloadManager() {
 
     // 如果子文件已经有下载链接（暂停后恢复的情况），先检查 aria2 任务状态
     if (subFile.downloadUrl && subFile.localPath) {
-      debugLog('子文件有下载链接，检查 aria2 状态', {
-        downloadUrl: subFile.downloadUrl?.substring(0, 50) + '...',
-        localPath: subFile.localPath
-      })
-
       // 先查询 aria2 中该任务的实际状态，防止重复下载已完成的文件
       const statusResult = await window.electronAPI?.getDownloadStatus(subFileDownloadId)
-      debugLog('aria2 状态查询结果', statusResult)
 
       if (statusResult?.success && statusResult.status) {
         const aria2Status = statusResult.status.status
-        debugLog('aria2 任务状态', { aria2Status })
 
         if (aria2Status === 'complete') {
-          debugLog('aria2 显示已完成，直接标记成功')
           // 清理映射和同步锁
           folderDownloadMap.value.delete(subFileDownloadId)
           subFileProcessingLock.delete(subFileDownloadId)
@@ -601,18 +537,14 @@ export function useDownloadManager() {
           return
         }
       } else {
-        debugLog('aria2 状态查询失败或无状态，检查文件是否已存在')
-
         // aria2 没有记录这个任务，但文件可能已经下载完成
         // 检查本地文件是否存在且大小匹配
         const fileCheckResult = await window.electronAPI?.checkFileExists(
           subFile.localPath,
           subFile.file.size
         )
-        debugLog('文件存在检查结果', fileCheckResult)
 
         if (fileCheckResult?.exists && fileCheckResult?.sizeMatch) {
-          debugLog('文件已存在且大小匹配，直接标记为完成')
           // 文件已完成，直接标记成功，清理映射和同步锁
           folderDownloadMap.value.delete(subFileDownloadId)
           subFileProcessingLock.delete(subFileDownloadId)
@@ -633,7 +565,6 @@ export function useDownloadManager() {
         }
 
         // 文件不存在或大小不匹配，清理旧的下载链接，重新获取
-        debugLog('文件不存在或大小不匹配，需要重新下载')
         subFile.downloadUrl = undefined
         subFile.localPath = undefined
         // 需要重新获取下载链接，不要直接恢复
@@ -647,10 +578,6 @@ export function useDownloadManager() {
         // 如果 aria2 返回的 totalLength 为 0，说明下载链接可能已失效
         // 需要清理旧任务并重新获取下载链接
         if (aria2TotalLength === 0) {
-          debugLog('aria2 totalLength 为 0，链接可能已失效，清理并重新获取链接', {
-            subFileDownloadId,
-            aria2Status: statusResult.status.status
-          })
           // 清理 aria2 记录
           await window.electronAPI?.cleanupDownload(subFileDownloadId)
           // 清除旧的下载链接，让后续逻辑重新获取
@@ -666,10 +593,7 @@ export function useDownloadManager() {
               subFile.file.size
             )
           }
-          debugLog('恢复前文件检查结果', fileCheckBeforeResume)
-
           if (fileCheckBeforeResume?.exists && fileCheckBeforeResume?.sizeMatch) {
-            debugLog('文件已存在且大小匹配，直接标记为完成，不恢复下载')
             // 清理 aria2 记录、映射和同步锁
             await window.electronAPI?.cleanupDownload(subFileDownloadId)
             folderDownloadMap.value.delete(subFileDownloadId)
@@ -689,20 +613,16 @@ export function useDownloadManager() {
             return
           }
 
-          debugLog('准备恢复下载', { subFileDownloadId })
           downloadStore.updateFolderSubFileStatus(task.id, index, 'downloading')
           if (currentTask.status !== 'downloading') {
             downloadStore.updateTaskStatus(task.id, 'downloading')
           }
           // 恢复下载
-          const resumeResult = await window.electronAPI?.resumeDownload(subFileDownloadId)
-          debugLog('恢复下载结果', resumeResult)
+          await window.electronAPI?.resumeDownload(subFileDownloadId)
           return
         }
       }
     }
-
-    debugLog('子文件无下载链接，需要获取新链接')
 
     // 使用任务自身的会话数据，避免被新下载编码覆盖
     const session = task.sessionData
@@ -724,10 +644,6 @@ export function useDownloadManager() {
         folderDownloadMap.value.delete(subFileDownloadId)
         subFileProcessingLock.delete(subFileDownloadId)
         downloadStore.updateFolderSubFileStatus(task.id, index, 'waiting')
-        debugLog('获取链接前任务已暂停/失败，清理映射', {
-          taskId: task.id,
-          taskStatus: taskBeforeApi?.status
-        })
         return
       }
 
@@ -747,10 +663,6 @@ export function useDownloadManager() {
       if (!taskAfterApi || taskAfterApi.status === 'paused' || taskAfterApi.status === 'error') {
         // 任务已暂停或失败，清理映射和锁，恢复子文件状态
         // 注意：即使 aria2 可能收到回调，进度回调处理器会通过 taskId 格式识别并忽略
-        debugLog('获取链接后任务已暂停/失败，清理映射', {
-          taskId: task.id,
-          taskStatus: taskAfterApi?.status
-        })
         folderDownloadMap.value.delete(subFileDownloadId)
         subFileProcessingLock.delete(subFileDownloadId)
         downloadStore.updateFolderSubFileStatus(task.id, index, 'waiting')
