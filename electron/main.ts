@@ -561,6 +561,24 @@ ipcMain.handle('download:getStatus', async (_, taskId: string) => {
   }
 })
 
+// 检查文件是否存在且大小匹配（用于判断文件是否已下载完成）
+ipcMain.handle('file:checkExists', async (_, filePath: string, expectedSize?: number) => {
+  try {
+    if (!fs.existsSync(filePath)) {
+      return { exists: false }
+    }
+    const stats = fs.statSync(filePath)
+    const actualSize = stats.size
+    // 如果提供了期望大小，检查是否匹配
+    const sizeMatch = expectedSize === undefined || actualSize === expectedSize
+    writeDebugLog(`[Main] checkFileExists: path=${filePath}, exists=true, size=${actualSize}, expectedSize=${expectedSize}, sizeMatch=${sizeMatch}`)
+    return { exists: true, size: actualSize, sizeMatch }
+  } catch (error: any) {
+    writeDebugLog(`[Main] checkFileExists error: path=${filePath}, error=${error.message}`)
+    return { exists: false, error: error.message }
+  }
+})
+
 // 写入调试日志（渲染进程调用）
 ipcMain.handle('debug:writeLog', async (_, message: string) => {
   writeDebugLog(`[Renderer] ${message}`)

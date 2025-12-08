@@ -556,18 +556,56 @@ export function useDownloadManager() {
           return
         }
       } else {
-        debugLog('aria2 状态查询失败或无状态，将尝试恢复下载')
+        debugLog('aria2 状态查询失败或无状态，检查文件是否已存在')
+
+        // aria2 没有记录这个任务，但文件可能已经下载完成
+        // 检查本地文件是否存在且大小匹配
+        const fileCheckResult = await window.electronAPI?.checkFileExists(
+          subFile.localPath,
+          subFile.file.size
+        )
+        debugLog('文件存在检查结果', fileCheckResult)
+
+        if (fileCheckResult?.exists && fileCheckResult?.sizeMatch) {
+          debugLog('文件已存在且大小匹配，直接标记为完成')
+          // 文件已完成，直接标记成功
+          folderDownloadMap.value.delete(subFileDownloadId)
+          downloadStore.markFolderSubFileCompleted(task.id, index, true)
+          // 检查文件夹是否全部完成
+          if (currentTask.subFiles) {
+            const allDone = currentTask.subFiles.every(sf => sf.status === 'completed' || sf.status === 'error')
+            if (allDone) {
+              const allSuccess = currentTask.subFiles.every(sf => sf.status === 'completed')
+              downloadStore.moveToCompleted(currentTask, allSuccess)
+            } else {
+              // 继续下载下一个文件
+              fillFolderDownloadSlots(currentTask)
+            }
+          }
+          processQueue()
+          return
+        }
+
+        // 文件不存在或大小不匹配，清理旧的下载链接，重新获取
+        debugLog('文件不存在或大小不匹配，需要重新下载')
+        subFile.downloadUrl = undefined
+        subFile.localPath = undefined
+        // 需要重新获取下载链接，不要直接恢复
+        // 继续执行下面获取下载链接的逻辑
       }
 
-      debugLog('准备恢复下载', { subFileDownloadId })
-      downloadStore.updateFolderSubFileStatus(task.id, index, 'downloading')
-      if (currentTask.status !== 'downloading') {
-        downloadStore.updateTaskStatus(task.id, 'downloading')
+      // 如果走到这里，说明 aria2 有状态但不是 complete，尝试恢复
+      if (statusResult?.success && statusResult.status) {
+        debugLog('准备恢复下载', { subFileDownloadId })
+        downloadStore.updateFolderSubFileStatus(task.id, index, 'downloading')
+        if (currentTask.status !== 'downloading') {
+          downloadStore.updateTaskStatus(task.id, 'downloading')
+        }
+        // 恢复下载
+        const resumeResult = await window.electronAPI?.resumeDownload(subFileDownloadId)
+        debugLog('恢复下载结果', resumeResult)
+        return
       }
-      // 恢复下载
-      const resumeResult = await window.electronAPI?.resumeDownload(subFileDownloadId)
-      debugLog('恢复下载结果', resumeResult)
-      return
     }
 
     debugLog('子文件无下载链接，需要获取新链接')

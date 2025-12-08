@@ -56,6 +56,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // 写入调试日志到文件
   writeDebugLog: (message: string) => ipcRenderer.invoke('debug:writeLog', message),
 
+  // 检查文件是否存在且大小匹配
+  checkFileExists: (filePath: string, expectedSize?: number) =>
+    ipcRenderer.invoke('file:checkExists', filePath, expectedSize),
+
   // 下载进度监听
   onDownloadProgress: (callback: (progress: DownloadProgress) => void) => {
     ipcRenderer.on('download:progress', (_, progress) => callback(progress))

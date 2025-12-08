@@ -79,6 +79,14 @@ interface ElectronAPI {
   // 写入调试日志到文件
   writeDebugLog: (message: string) => Promise<void>
 
+  // 检查文件是否存在且大小匹配
+  checkFileExists: (filePath: string, expectedSize?: number) => Promise<{
+    exists: boolean
+    size?: number
+    sizeMatch?: boolean
+    error?: string
+  }>
+
   // 下载进度监听
   onDownloadProgress: (callback: (progress: DownloadProgress) => void) => void
   removeDownloadProgressListener: () => void
