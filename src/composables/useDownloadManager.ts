@@ -238,8 +238,22 @@ export function useDownloadManager() {
 
   // 处理单个文件任务
   async function processFileTask(task: DownloadTask) {
-    // 如果任务已有下载链接（暂停后恢复），直接恢复下载
+    // 如果任务已有下载链接（暂停后恢复），先检查 aria2 状态
     if (task.downloadUrl) {
+      // 先查询 aria2 中该任务的实际状态，防止重复下载已完成的文件
+      const statusResult = await window.electronAPI?.getDownloadStatus(task.id)
+      if (statusResult?.success && statusResult.status) {
+        const aria2Status = statusResult.status.status
+        if (aria2Status === 'complete') {
+          // aria2 显示已完成，直接标记成功
+          downloadStore.moveToCompleted(task, true)
+          // 释放锁并处理下一个任务
+          isFetchingLink.value = false
+          processQueue()
+          return
+        }
+      }
+
       downloadStore.updateTaskStatus(task.id, 'downloading')
       await window.electronAPI?.resumeDownload(task.id)
       // 释放锁并处理下一个任务
@@ -434,8 +448,31 @@ export function useDownloadManager() {
     // 生成子文件的下载 ID
     const subFileDownloadId = `${task.id}-sub-${index}`
 
-    // 如果子文件已经有下载链接（暂停后恢复的情况），直接恢复下载
+    // 如果子文件已经有下载链接（暂停后恢复的情况），先检查 aria2 任务状态
     if (subFile.downloadUrl && subFile.localPath) {
+      // 先查询 aria2 中该任务的实际状态，防止重复下载已完成的文件
+      const statusResult = await window.electronAPI?.getDownloadStatus(subFileDownloadId)
+      if (statusResult?.success && statusResult.status) {
+        const aria2Status = statusResult.status.status
+        if (aria2Status === 'complete') {
+          // aria2 显示已完成，直接标记成功
+          downloadStore.markFolderSubFileCompleted(task.id, index, true)
+          // 检查文件夹是否全部完成
+          if (currentTask.subFiles) {
+            const allDone = currentTask.subFiles.every(sf => sf.status === 'completed' || sf.status === 'error')
+            if (allDone) {
+              const allSuccess = currentTask.subFiles.every(sf => sf.status === 'completed')
+              downloadStore.moveToCompleted(currentTask, allSuccess)
+            } else {
+              // 继续下载下一个文件
+              fillFolderDownloadSlots(currentTask)
+            }
+          }
+          processQueue()
+          return
+        }
+      }
+
       downloadStore.updateFolderSubFileStatus(task.id, index, 'downloading')
       if (currentTask.status !== 'downloading') {
         downloadStore.updateTaskStatus(task.id, 'downloading')

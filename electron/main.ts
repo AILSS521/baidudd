@@ -514,6 +514,17 @@ ipcMain.handle('download:cleanup', async (_, taskId: string) => {
   }
 })
 
+// 获取下载任务状态（用于恢复前检查任务是否已完成）
+ipcMain.handle('download:getStatus', async (_, taskId: string) => {
+  try {
+    const status = await downloadManager.getTaskStatus(taskId)
+    return { success: true, status }
+  } catch (error: any) {
+    // 任务不存在返回 null
+    return { success: true, status: null }
+  }
+})
+
 // IPC处理 - 下载线路
 ipcMain.handle('route:selectBest', async () => {
   try {

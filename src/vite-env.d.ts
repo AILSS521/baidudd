@@ -19,6 +19,17 @@ interface DownloadProgress {
   error?: string
 }
 
+// aria2 任务状态类型
+interface Aria2TaskStatus {
+  gid: string
+  status: 'active' | 'waiting' | 'paused' | 'error' | 'complete' | 'removed'
+  totalLength: string
+  completedLength: string
+  downloadSpeed: string
+  errorCode?: string
+  errorMessage?: string
+}
+
 // 下载线路类型
 interface DownloadRoute {
   name: string
@@ -63,6 +74,7 @@ interface ElectronAPI {
   resumeDownload: (taskId: string) => Promise<{ success: boolean; error?: string }>
   cancelDownload: (taskId: string) => Promise<{ success: boolean; error?: string }>
   cleanupDownload: (taskId: string) => Promise<{ success: boolean; error?: string }>
+  getDownloadStatus: (taskId: string) => Promise<{ success: boolean; status: Aria2TaskStatus | null }>
 
   // 下载进度监听
   onDownloadProgress: (callback: (progress: DownloadProgress) => void) => void
