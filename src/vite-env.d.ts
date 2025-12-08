@@ -76,9 +76,6 @@ interface ElectronAPI {
   cleanupDownload: (taskId: string) => Promise<{ success: boolean; error?: string }>
   getDownloadStatus: (taskId: string) => Promise<{ success: boolean; status: Aria2TaskStatus | null }>
 
-  // 写入调试日志到文件
-  writeDebugLog: (message: string) => Promise<void>
-
   // 检查文件是否存在且大小匹配
   checkFileExists: (filePath: string, expectedSize?: number) => Promise<{
     exists: boolean

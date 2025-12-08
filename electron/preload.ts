@@ -53,9 +53,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   cleanupDownload: (taskId: string) => ipcRenderer.invoke('download:cleanup', taskId),
   getDownloadStatus: (taskId: string) => ipcRenderer.invoke('download:getStatus', taskId),
 
-  // 写入调试日志到文件
-  writeDebugLog: (message: string) => ipcRenderer.invoke('debug:writeLog', message),
-
   // 检查文件是否存在且大小匹配
   checkFileExists: (filePath: string, expectedSize?: number) =>
     ipcRenderer.invoke('file:checkExists', filePath, expectedSize),
