@@ -594,8 +594,38 @@ export function useDownloadManager() {
         // 继续执行下面获取下载链接的逻辑
       }
 
-      // 如果走到这里，说明 aria2 有状态但不是 complete，尝试恢复
+      // 如果走到这里，说明 aria2 有状态但不是 complete，在恢复前先检查文件是否已完成
       if (statusResult?.success && statusResult.status) {
+        // 先检查本地文件是否已存在且大小匹配（可能下载已完成但 aria2 状态延迟）
+        let fileCheckBeforeResume: { exists: boolean; size?: number; sizeMatch?: boolean } | undefined
+        if (subFile.localPath) {
+          fileCheckBeforeResume = await window.electronAPI?.checkFileExists(
+            subFile.localPath,
+            subFile.file.size
+          )
+        }
+        debugLog('恢复前文件检查结果', fileCheckBeforeResume)
+
+        if (fileCheckBeforeResume?.exists && fileCheckBeforeResume?.sizeMatch) {
+          debugLog('文件已存在且大小匹配，直接标记为完成，不恢复下载')
+          // 清理 aria2 记录
+          await window.electronAPI?.cleanupDownload(subFileDownloadId)
+          folderDownloadMap.value.delete(subFileDownloadId)
+          downloadStore.markFolderSubFileCompleted(task.id, index, true)
+          // 检查文件夹是否全部完成
+          if (currentTask.subFiles) {
+            const allDone = currentTask.subFiles.every(sf => sf.status === 'completed' || sf.status === 'error')
+            if (allDone) {
+              const allSuccess = currentTask.subFiles.every(sf => sf.status === 'completed')
+              downloadStore.moveToCompleted(currentTask, allSuccess)
+            } else {
+              fillFolderDownloadSlots(currentTask)
+            }
+          }
+          processQueue()
+          return
+        }
+
         debugLog('准备恢复下载', { subFileDownloadId })
         downloadStore.updateFolderSubFileStatus(task.id, index, 'downloading')
         if (currentTask.status !== 'downloading') {
