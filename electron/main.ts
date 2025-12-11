@@ -7,14 +7,28 @@ import net from 'net'
 import { downloadManager } from './downloader'
 import { aria2Client } from './aria2-client'
 
-// 禁用 GPU 硬件加速，解决部分 Windows 系统 GPU 进程崩溃问题
-// 错误码 0xC0000135 (STATUS_DLL_NOT_FOUND) 通常是显卡驱动兼容性问题
+// 解决部分 Windows 系统 GPU 进程崩溃问题 (0xC0000135 / 0x80000003)
+// 这套组合拳专治各种疑难杂症
+
+// 1. 完全禁用硬件加速 - 最稳妥的方案
 app.disableHardwareAcceleration()
 
-// 额外的 GPU 相关命令行参数
+// 2. 禁用 GPU 相关功能
 app.commandLine.appendSwitch('disable-gpu')
 app.commandLine.appendSwitch('disable-gpu-compositing')
+app.commandLine.appendSwitch('disable-gpu-sandbox')
+
+// 3. 禁用沙箱 - 解决某些系统权限问题
+app.commandLine.appendSwitch('no-sandbox')
+app.commandLine.appendSwitch('disable-setuid-sandbox')
+
+// 4. 强制使用软件渲染
 app.commandLine.appendSwitch('disable-software-rasterizer')
+app.commandLine.appendSwitch('use-gl', 'swiftshader')
+
+// 5. 禁用一些可能导致问题的特性
+app.commandLine.appendSwitch('disable-features', 'VizDisplayCompositor')
+app.commandLine.appendSwitch('disable-gpu-process-crash-limit')
 
 let mainWindow: BrowserWindow | null = null
 let splashWindow: BrowserWindow | null = null
